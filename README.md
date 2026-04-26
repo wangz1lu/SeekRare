@@ -1,5 +1,7 @@
 # SeekRare
 **LLM-powered Rare Disease Diagnosis System with Dual-Dynamic Variant Scoring**
+Genos： https://github.com/BGI-HangzhouAI/Genos
+
 <img width="2172" height="724" alt="image" src="https://github.com/user-attachments/assets/663aa08c-3d13-4032-ab60-9984a045da88" />
 
 ---
