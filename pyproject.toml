@@ -12,6 +12,16 @@ authors = [
     {name = "Wang Zelong", email = "wangz1lu@seekrare.dev"}
 ]
 requires-python = ">=3.10"
+keywords = ["rare-disease", "genomics", "variant-analysis", "llm", "clinical-genetics"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
 dependencies = [
     "pysam>=0.21",
     "pandas>=2.0",
@@ -22,6 +32,8 @@ dependencies = [
     "anthropic>=0.18",
     "tqdm>=4.66",
     "loguru>=0.7",
+    "biopython>=1.83",
+    "requests>=2.31",
 ]
 
 [project.optional-dependencies]
@@ -31,6 +43,19 @@ dev = [
     "black>=23.0",
     "ruff>=0.1",
 ]
+hpo = [
+    "pyhpo>=3.0",
+]
+alphafold = [
+    "requests>=2.31",
+]
+
+[project.urls]
+Homepage = "https://github.com/wangz1lu/SeekRare"
+Documentation = "https://github.com/wangz1lu/SeekRare#readme"
+Repository = "https://github.com/wangz1lu/SeekRare"
+Issues = "https://github.com/wangz1lu/SeekRare/issues"
+PyPI = "https://pypi.org/project/seekrare/"
 
 [tool.setuptools.packages.find]
 where = ["src"]
