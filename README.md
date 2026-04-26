@@ -1,120 +1,106 @@
 # SeekRare
-
-**Rare Disease Diagnosis System powered by LLM**
-
-> Given a patient's symptom description, family VCF files, and a novel dual-dynamic scoring pipeline, SeekRare delivers personalized, ranked candidate variants — tailored to each patient's unique clinical presentation.
+**LLM-powered Rare Disease Diagnosis System with Dual-Dynamic Variant Scoring**
 
 ---
 
-## 🎯 Core Idea
+## 🎯 Core Innovation
 
-Traditional variant prioritization tools apply **fixed, static weights** to annotation columns (ClinVar, CADD, HPO, gnomAD, etc.). This is a poor fit for rare disease diagnostics, where the *same* symptom can have wildly different phenotypic interpretations depending on the patient.
-
-SeekRare solves this with **LLM-driven dual-dynamic scoring**:
+Traditional variant prioritization tools apply **fixed, static weights** to annotation columns. SeekRare uses an **LLM-driven dual-dynamic scoring system**:
 
 ```
 Patient Symptoms (free text)
         │
         ▼
-┌─────────────────────────────────────────────────────────┐
-│  LLM Symptom Interpreter                                 │
-│  1. Extracts relevant HPO terms (semantic search)       │
-│  2. Outputs dynamic weight vector W = [w_clinvar, w_hpo, │
-│     w_cadd, w_gnomad, ...]                              │
-│     dynamically calibrated for this patient                │
-└─────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│  LLM Symptom Interpreter                                     │
+│  1. Extracts relevant HPO terms with semantic relevance     │
+│  2. Outputs dynamic weight vector for annotation columns     │
+│     e.g., {"hpo_weight": 0.35, "clinvar_weight": 0.40, ...}  │
+└─────────────────────────────────────────────────────────────┘
         │
         ▼
-Variant CSV (rows = variants, cols = annotations)
-        │
-        ▼
-┌─────────────────────────────────────────────────────────┐
-│  Dynamic Scoring Engine                                  │
-│  score(v) = Σ  W[col] × semantic_similarity(HPO[col], │
-│                        relevant_HPOs) × normalize(val)   │
-│                                                         │
-│  → Column weights change per patient                     │
-│  → HPO relevance changes per symptom                   │
-│  → Both dimensions are dynamic ("dual-dynamic")          │
-└─────────────────────────────────────────────────────────┘
-        │
-        ▼
-Ranked Candidate Variants (personalized to patient)
+Variant CSV ──→ Dual-Dynamic Scoring Engine ──→ Personalized Ranking
+                   │
+                   ├── Column weights: LLM-adjusted per symptom
+                   └── HPO relevance: semantic similarity to patient
 ```
 
 ---
 
-## 📂 Project Structure
+## 🏗️ Two-Stage Architecture
+
+### Stage 1: VCF Preprocessing & Annotation (bioinformatics pipeline)
+
+```
+Trio VCFs (father + mother + child)
+        │
+        ▼
+┌─ bcftools preprocessing ─────────────────────────────┐
+│  • bcftools norm (left-normalize, split multi-allelics)
+│  • bcftools merge (trio)
+│  • bcftools filter (QUAL>30, DP>10, GQ>20)
+│  • Split by inheritance: de novo / recessive / etc.
+│  • Exclude common dbSNP variants
+└──────────────────────────────────────────────────┘
+        │
+        ▼
+vcf_to_gt_csv.py       → CHROM, POS, REF, ALT, GT per sample
+        │
+        ▼
+annotate_gtf.py        → gene_name, feature_type (NCBI GTF sweep-line)
+        │
+        ▼
+merge_clinvar.py       → clinvar_sig, clinvar_mc, clinvar_min_distance
+        │
+        ▼
+Annotated Variant CSV (ready for LLM scoring)
+```
+
+### Stage 2: LLM-Powered Analysis
+
+```
+Annotated CSV + Patient Symptoms
+        │
+        ▼
+LLMSymptomParser → {relevant_hpos: [...], weight_vector: {...}}
+        │
+        ▼
+DualDynamicScorer → seekrare_score per variant
+        │
+        ▼
+Ranked Candidate Variants (personalized top-K)
+```
+
+---
+
+## 📁 Project Structure
 
 ```
 seekrare/
 ├── README.md
-├── requirements.txt
 ├── pyproject.toml
+├── requirements.txt
 ├── .gitignore
-├── src/
-│   └── seekrare/
-│       ├── __init__.py
-│       ├── pipeline.py          # Main orchestrator
-│       ├── io/
-│       │   ├── vcf_parser.py    # VCF loading (trio supported)
-│       │   └── csv_writer.py    # Results export
-│       ├── annotation/
-│       │   ├── clinvar.py       # ClinVar annotation
-│       │   ├── vep.py           # VEP-style annotation
-│       │   ├── hpo_matcher.py   # HPO ↔ symptom semantic matching
-│       │   └── combiner.py      # Merge all annotations into CSV
-│       ├── llm/
-│       │   ├── symptom_parser.py # LLM symptom → HPO + weight vector
-│       │   └── scorer.py        # LLM-instructed scoring planner
-│       └── scoring/
-│           ├── engine.py        # Dual-dynamic scoring engine
-│           └── ranker.py        # Ranking and output
-└── tests/
-    └── ...
+├── scripts/
+│   ├── vcf_to_gt_csv.py                 # VCF → GT CSV
+│   ├── annotate_vcf_csv_by_ncbi_gtf.py  # Gene annotation (GTF)
+│   ├── merge_filter_clinvar_with_distance.py  # ClinVar annotation
+│   └── bcftools_preprocess.sh            # bcftools preprocessing wrapper
+└── src/seekrare/
+    ├── pipeline.py         # Full two-stage orchestrator
+    ├── preprocess/
+    │   ├── __init__.py
+    │   ├── vcf_to_gt.py
+    │   ├── gene_annotation.py
+    │   └── clinvar_annotation.py
+    ├── annotation/
+    │   └── combiner.py     # General annotation combiner
+    ├── llm/
+    │   └── symptom_parser.py  # LLM symptom → HPO + weights
+    └── scoring/
+        ├── engine.py       # Dual-dynamic scoring engine
+        └── ranker.py      # Ranking utilities
 ```
-
----
-
-## 🔑 Key Concepts
-
-### Dual-Dynamic Scoring
-
-| Dimension | Static (traditional) | Dynamic (SeekRare) |
-|-----------|-------------------|-------------------|
-| **Column weights** | Fixed at pipeline design | **LLM-adjusted per symptom** |
-| **HPO relevance** | Binary match | **Semantic similarity to patient symptoms** |
-| **Output** | One-size-fits-all ranking | **Personalized to this patient** |
-
-### LLM Symptom Interpreter
-
-The LLM receives:
-- Patient's free-text symptom description
-- List of available HPO terms (ontology)
-
-The LLM outputs:
-1. **Relevant HPO terms** with semantic relevance scores (0–1)
-2. **Annotation column weights** — e.g., `"hpo_weight": 0.35, "clinvar_weight": 0.40, "cadd_weight": 0.15, ...`
-
-### Variant CSV Schema (input to scoring engine)
-
-| column | description |
-|--------|-------------|
-| `chrom` | Chromosome |
-| `pos` | Position |
-| `ref` | Reference allele |
-| `alt` | Alternate allele |
-| `gene` | Gene symbol |
-| `clinvar_significance` | ClinVar pathogenicity |
-| `clinvar_stars` | ClinVar review status |
-| `cadd_score` | CADD phred score |
-| `gnomad_af` | gnomAD allele frequency |
-| `sift_score` | SIFT prediction |
-| `polyphen_score` | PolyPhen prediction |
-| `hpo_terms` | Associated HPO terms (pipe-separated) |
-| `hgvs_c` | HGVS coding change |
-| `impact` | Variant impact (HIGH/MODERATE/LOW) |
-| ... | (extensible) |
 
 ---
 
@@ -124,68 +110,79 @@ The LLM outputs:
 from seekrare import SeekRarePipeline
 
 pipeline = SeekRarePipeline(
-    vcf_proband="data/proband.vcf",
-    vcf_father="data/father.vcf",
-    vcf_mother="data/mother.vcf",
-    llm_provider="openai",        # or "anthropic", "local"
+    vcf_proband="child.vcf.gz",
+    vcf_father="father.vcf.gz",
+    vcf_mother="mother.vcf.gz",
+    ref_fasta="/ref/GRCh38.fa",
+    gtf_file="/ref/genomic.gtf",
+    clinvar_csv="/ref/clinvar.csv",
+    llm_provider="openai",
     llm_model="gpt-4o",
     api_key=os.getenv("OPENAI_API_KEY"),
 )
 
 result = pipeline.run(
     symptoms="Patient presents with intellectual disability, seizures, "
-             "hypotonia, and characteristic facial features. EEG shows "
-             "generalized spike-wave discharges.",
-    top_k=50,                    # Return top 50 candidate variants
+             "hypotonia, and characteristic facial features. "
+             "EEG shows generalized spike-wave discharges."
 )
 
-result.to_csv("output/candidate_variants.csv", index=False)
+result.to_csv("candidate_variants.csv", index=False)
 ```
 
 ---
 
 ## ⚙️ Configuration
 
-See `config/default.yaml` for full configuration options.
+Key settings in `SeekRareConfig`:
 
-Key settings:
-- `annotation.clinvar_cache`: Path to ClinVar VCF cache
-- `annotation.vep_cache`: VEP annotation cache
-- `llm.temperature`: LLM sampling temperature
-- `scoring.normalization`: Per-column normalization strategy
-- `filtering.max_af`: Max gnomAD allele frequency (default: 0.01)
-
----
-
-## 📋 Pipeline Steps
-
-```
-1. load_vcf()          — Parse and merge trio VCF files
-2. annotate()           — ClinVar, VEP, HPO annotation
-3. filter_variants()   — Quality + frequency filters
-4. llm_interpret()     — LLM: symptom → HPO + weights
-5. score_variants()    — Dual-dynamic scoring engine
-6. rank_and_export()   — Sort and export CSV
-```
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `gtf_file` | NCBI genomic.gtf for gene annotation | Required |
+| `clinvar_csv` | ClinVar CSV for pathogenicity annotation | Optional |
+| `ref_fasta` | GRCh38 reference for bcftools normalization | Required for bcftools |
+| `dbSNP_vcf` | dbSNP VCF for common SNP exclusion | Optional |
+| `max_af` | Max gnomAD allele frequency filter | 0.01 |
+| `llm_provider` | "openai", "anthropic", or "local" | "openai" |
+| `llm_model` | Model name | "gpt-4o" |
+| `top_k` | Number of top candidates to return | 50 |
 
 ---
 
 ## 🔬 Scientific Rationale
 
-### Why LLM for scoring?
-
-Rare disease diagnostics requires integrating **heterogeneous, high-dimensional annotation data** — many columns, each capturing different aspects of pathogenicity. Static weight schemes (e.g., ACMG criteria) are widely applicable but fail to capture **patient-specific phenotypic context**.
-
-The LLM acts as a "clinical geneticist in the loop":
-- It reads the patient's actual symptoms
-- It knows which phenotypic terms are semantically related
-- It can weight ClinVar evidence differently for a seizure phenotype vs. a cardiac phenotype
-
 ### Why dual-dynamic?
 
-A single dynamic adjustment (either weights or HPO matching) still leaves one dimension static. True personalization requires both:
-1. **Which annotation columns matter most** (LLM weight allocation)
-2. **Which HPO terms are clinically relevant** (semantic symptom matching)
+| Dimension | Traditional | SeekRare |
+|-----------|------------|----------|
+| **Column weights** | Fixed at pipeline design | **LLM-adjusted per patient** |
+| **HPO relevance** | Binary match | **Semantic similarity to patient symptoms** |
+| **Output** | One-size-fits-all | **Personalized ranking** |
+
+### LLM as Clinical Geneticist
+
+The LLM acts as a clinical geneticist in the loop:
+- Reads the patient's actual symptom description
+- Knows which phenotypic terms are semantically related
+- Can weight ClinVar evidence differently for a seizure phenotype vs. a cardiac phenotype
+
+---
+
+## 📋 Pipeline Steps (Stage 1 Scripts)
+
+```bash
+# Step 1a: bcftools preprocessing (bash)
+bash scripts/bcftools_preprocess.sh /outdir father.vcf.gz mother.vcf.gz child.vcf.gz
+
+# Step 1b: VCF → GT CSV
+python -m seekrare.preprocess.vcf_to_gt input.vcf output.csv
+
+# Step 1c: Gene annotation (GTF sweep-line)
+python -m seekrare.preprocess.gene_annotation input.csv genomic.gtf output.csv
+
+# Step 1d: ClinVar annotation + distance filter
+python -m seekrare.preprocess.clinvar_annotation annotated.csv clinvar.csv output.csv
+```
 
 ---
 
