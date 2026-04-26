@@ -1,0 +1,12 @@
+pysam>=0.21
+pandas>=2.0
+numpy>=1.24
+pyarrow>=14.0
+pyyaml>=6.0
+openai>=1.0
+anthropic>=0.18
+tqdm>=4.66
+loguru>=0.7
+biopython>=1.83
+scikit-learn>=1.4
+pyhpo>=3.0
