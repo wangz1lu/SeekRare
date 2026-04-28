@@ -1,54 +1,28 @@
 # SeekRare
-**LLM-powered Rare Disease Diagnosis System with Dual-Dynamic Variant Scoring**
+**三阶段罕见病诊断系统 — Three-Stage Rare Disease Diagnosis System**
 
-[![PyPI](https://img.shields.io/pypi/v/seekrare.svg)](https://pypi.org/project/seekrare/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
----
-
-## 📦 Download & Installation
-
-```bash
-# Install from PyPI (recommended)
-pip install seekrare
-
-# Or install latest development version from GitHub
-pip install git+https://github.com/wangz1lu/SeekRare.git
-
-# With all optional dependencies
-pip install seekrare[dev]
-
-# Development install (editable)
-git clone https://github.com/wangz1lu/SeekRare.git
-cd SeekRare
-pip install -e .
-```
-
-**Requirements:**
-- Python ≥ 3.10
-- pandas ≥ 2.0, numpy ≥ 1.24
-- pysam ≥ 0.21 (VCF handling)
-- openai ≥ 1.0 or anthropic ≥ 0.18 (LLM APIs)
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+[![develop](https://img.shields.io/badge/branch-develop-blue.svg)](https://github.com/wangz1lu/SeekRare/tree/develop)
 
 ---
 
-## 🎯 Core Innovation
+## 🎯 核心创新
 
-Traditional variant prioritization tools apply **fixed, static weights** to annotation columns. SeekRare uses an **LLM-driven dual-dynamic scoring system**:
+SeekRare 采用**三阶段架构**，从家系 VCF 输入到排序候选变异输出：
 
 ```
-Patient Symptoms (free text)
+患者症状（自由文本）
         │
         ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  LLM Symptom Interpreter                                     │
-│  1. Extracts relevant HPO terms with semantic relevance     │
-│  2. Outputs dynamic weight vector for annotation columns     │
-│     e.g., {"hpo_weight": 0.35, "clinvar_weight": 0.40, ...}  │
+│  Stage 3: LLM Symptom Interpreter                           │
+│  1. LLM 解析患者症状 → 相关 HPO terms + relevance score     │
+│  2. LLM 输出动态 weight vector（每个患者不同）               │
+│  3. HPOMatcher 语义匹配，扩展 HPO 覆盖                       │
 └─────────────────────────────────────────────────────────────┘
         │
         ▼
-Variant CSV ──→ Dual-Dynamic Scoring Engine ──→ Personalized Ranking
+Annotated CSV ──→ Dual-Dynamic Scorer ──→ Personalized Ranking
                    │
                    ├── Column weights: LLM-adjusted per symptom
                    └── HPO relevance: semantic similarity to patient
@@ -56,232 +30,51 @@ Variant CSV ──→ Dual-Dynamic Scoring Engine ──→ Personalized Ranking
 
 ---
 
-## 🏗️ Full Module Architecture
+## 🏗️ 三阶段架构
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         SeekRare                                  │
-│                                                                  │
-│  ┌────────────────────── Stage 1 ───────────────────────┐         │
-│  │          VCF Preprocessing & Annotation               │         │
-│  │                                                        │         │
-│  │  preprocess/vcf_to_gt.py     VCF → GT CSV            │         │
-│  │  preprocess/gene_annotation.py  GTF gene annotation  │         │
-│  │  preprocess/clinvar_annotation.py ClinVar merge       │         │
-│  │                                                        │         │
-│  └──────────────────────────────────────────────────────┘         │
-│                            ↓                                    │
-│  ┌────────────────────── Stage 2 ───────────────────────┐         │
-│  │          LLM-Powered Analysis                       │         │
-│  │                                                        │         │
-│  │  llm/symptom_parser.py   LLM symptom → HPO + weights│         │
-│  │  llm/genos_client.py    Genos 临床遗传学专用 LLM   │         │
-│  │  llm/alphafold_client.py AlphaFold 结构预测       │         │
-│  │                                                        │         │
-│  └──────────────────────────────────────────────────────┘         │
-│                            ↓                                    │
-│  ┌────────────────────── Stage 3 ───────────────────────┐         │
-│  │          Scoring & Ranking                           │         │
-│  │                                                        │         │
-│  │  scoring/engine.py   Dual-dynamic scoring engine     │         │
-│  │  scoring/ranker.py   Personalized ranking            │         │
-│  │                                                        │         │
-│  └──────────────────────────────────────────────────────┘         │
-│                            ↓                                    │
-│  ┌────────────────────── Stage 4 ───────────────────────┐         │
-│  │          Annotation Extensions                         │         │
-│  │                                                        │         │
-│  │  annotation/hpo_matcher.py   HPO 语义匹配              │         │
-│  │  annotation/combiner.py    多源注释合并               │         │
-│  └──────────────────────────────────────────────────────┘         │
-└─────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 🚀 Quick Start
-
-### Python API
-
-```python
-from seekrare import SeekRarePipeline
-
-# Initialize pipeline
-pipeline = SeekRarePipeline(
-    vcf_proband="child.vcf.gz",
-    vcf_father="father.vcf.gz",
-    vcf_mother="mother.vcf.gz",
-    ref_fasta="/ref/GRCh38.fa",
-    gtf_file="/ref/genomic.gtf",
-    clinvar_csv="/ref/clinvar.csv",
-    llm_provider="openai",
-    llm_model="gpt-4o",
-    api_key=os.getenv("OPENAI_API_KEY"),
-)
-
-# Run full pipeline
-result = pipeline.run(
-    symptoms="Patient presents with intellectual disability, seizures, "
-             "hypotonia, and characteristic facial features. "
-             "EEG shows generalized spike-wave discharges."
-)
-result.to_csv("candidate_variants.csv", index=False)
-```
-
-### Stage-by-Stage Usage
-
-```python
-from seekrare.preprocess import vcf_to_gt_csv, annotate_by_gtf, merge_filter_clinvar
-from seekrare.llm import LLMSymptomParser, GenosClient
-from seekrare.annotation import HPOMatcher
-from seekrare.scoring import DualDynamicScorer, rank_variants
-
-# Stage 1: VCF → Annotated CSV
-vcf_to_gt_csv("trio.vcf.gz", "1_gt.csv")
-annotate_by_gtf("1_gt.csv", "genomic.gtf", "2_annotated.csv")
-merge_filter_clinvar("2_annotated.csv", "clinvar.csv", "3_clinvar.csv")
-
-# Stage 2: HPO Matching
-matcher = HPOMatcher(use_ontology=True)
-hpo_results = matcher.match("intellectual disability, seizures, hypotonia")
-
-# Stage 3: LLM Interpretation
-llm = LLMSymptomParser(provider="openai", model="gpt-4o")
-llm_out = llm.interpret("intellectual disability, seizures...")
-
-# Stage 4: Scoring & Ranking
-scorer = DualDynamicScorer(weight_vector=llm_out["weight_vector"])
-df = pd.read_csv("3_clinvar.csv")
-scored = scorer.score(df, relevant_hpos=llm_out["relevant_hpos"])
-ranked = rank_variants(scored, top_k=50)
-```
-
----
-
-## 🔬 New Modules (Extended Capabilities)
-
-### Genos LLM — 临床遗传学专用大模型
-
-专门针对临床遗传学的 LLM，可进行综合分析和临床报告生成。
-
-```python
-from seekrare.llm import GenosClient
-
-# Initialize Genos
-genos = GenosClient(
-    api_key="yourgenosapikey",      # Set GENOS_API_KEY env var
-    base_url="https://api.genos.tech/v1",
-    model="genos-clinical-v1",
-)
-
-# Analyze a single variant in clinical context
-variant_info = {
-    "gene": "SCN1A",
-    "cDNA_change": "c.2545C>T",
-    "protein_change": "p.Arg849Cys",
-    "clinvar_sig": "Pathogenic",
-    "cadd_score": 35.0,
-    "gnomad_af": 0.00001,
-    "impact": "HIGH",
-}
-analysis = genos.analyze_variant(
-    variant_info=variant_info,
-    patient_phenotype="Dravet syndrome: febrile seizures, developmental regression",
-    hpo_terms=["HP:0001250", "HP:0012469"],
-)
-print(analysis["pathogenicity_assessment"])
-
-# Batch analyze top candidates
-results = genos.batch_analyze(candidate_df, patient_phenotype, top_n=20)
-
-# Generate clinical report
-report = genos.generate_clinical_report(
-    candidate_variants=results,
-    patient_info={"age": "3y", "sex": "M", "family_history": "None"},
-    phenotype="febrile seizures, developmental regression",
-)
-print(report)
-```
-
-### AlphaFold Server — 蛋白质结构预测
-
-对候选基因进行蛋白质结构预测，验证变异对蛋白结构的影响。
-
-```python
-from seekrare.llm import AlphaFoldClient
-
-af = AlphaFoldClient(output_dir="alphafold_results")
-
-# Submit prediction (non-blocking)
-job = af.predict_sequence(
-    sequence="MVLSPADKTNVKAAWGKVGAHAGEYGAEALERMFLSFPTTKTYFPH...",
-    gene_name="HBB",
-    wait=True,         # Poll until complete
-    poll_interval=30,
-)
-print(f"PDB URL: {job['pdb_url']}")
-
-# Download PDB
-pdb_path = af.download_pdb(job["pdb_url"], "HBB_structure.pdb")
-
-# Quick submit + download in one call
-pdb_path = af.predict_and_download(sequence, gene_name="BRCA1")
-```
-
-### HPO Matcher — 症状语义匹配
-
-将自由文本症状描述匹配到 HPO ontology 术语，支持 pyhpo 语义相似度。
-
-```python
-from seekrare.annotation import HPOMatcher
-
-matcher = HPOMatcher(use_ontology=True)
-
-# Match symptoms to HPO terms
-results = matcher.match(
-    "intellectual disability, seizures, generalized spike-wave on EEG, hypotonia",
-    top_k=15,
-)
-# Returns: [{"hpo_id": "HP:0001250", "hpo_name": "Seizure", "score": 0.95}, ...]
-
-# Batch matching
-batch = matcher.batch_match(
-    ["seizures + hypotonia", "cardiomyopathy + ichthyosis"],
-    top_k=10,
-)
-```
-
----
-
-## 🏗️ Two-Stage Architecture
-
-### Stage 1: VCF Preprocessing & Annotation
+### Stage 1 — VCF 家系预处理 + 基本注释（必须）
 
 ```
 Trio VCFs (father + mother + child)
         │
         ▼
-bcftools preprocessing ────────────────────────────────
-  • bcftools norm (left-normalize, split multi-allelics)
-  • bcftools merge (trio)
-  • bcftools filter (QUAL>30, DP>10, GQ>20)
-  • Split by inheritance: de novo / recessive
-  • Exclude common dbSNP variants
+scripts/bcftools_preprocess.sh
+  ├── bcftools norm (left-normalize, split multi-allelics)
+  ├── bcftools merge (trio)
+  ├── Quality filter (QUAL>30, DP>10, GQ>20)
+  ├── Inheritance 分类: denovo / recessive / compound_het / xlinked
+  └── Exclude common dbSNP variants
         │
         ▼
-vcf_to_gt_csv.py       → CHROM, POS, REF, ALT, GT per sample
+scripts/compound_het_filter.py   (Python 精细复合杂合过滤)
         │
         ▼
-annotate_gtf.py        → gene_name, feature_type (NCBI GTF sweep-line)
+preprocess/vcf_to_gt.py           → CHROM, POS, REF, ALT, GT per sample
+preprocess/gene_annotation.py     → gene_name, feature_type (GTF sweep-line)
+preprocess/clinvar_annotation.py   → clinvar_sig, clinvar_mc, min_distance
+                                     + omim_diseases, omim_inheritance, omim_mim_number
+                                     + hpo_terms (基因→疾病映射)
         │
         ▼
-merge_clinvar.py       → clinvar_sig, clinvar_mc, clinvar_min_distance
-        │
-        ▼
-Annotated Variant CSV (ready for LLM scoring)
+Stage 1 输出: annotated_variants.csv
+（基础列 + 必须注释列）
 ```
 
-### Stage 2: LLM-Powered Analysis
+### Stage 2 — 高级注释（可选）
+
+```
+Stage 1 CSV + 资源配置
+        │
+        ▼
+annotation/gtex_eqtl.py         → eqtl_gene, eqtl_pval, eqtl_tissue (GTEx eQTL)
+annotation/alphafold3.py        → alphafold_predicted, alphafold_pdb_url (STUB)
+annotation/alphafold3.GenosAnnotationStub → genos_pathogenicity, genos_acmg_criteria (STUB)
+        │
+        ▼
+Stage 2 输出: 在 Stage 1 基础上追加高级注释列
+```
+
+### Stage 3 — LLM 分析
 
 ```
 Annotated CSV + Patient Symptoms
@@ -293,13 +86,7 @@ LLMSymptomParser → {relevant_hpos: [...], weight_vector: {...}}
 HPOMatcher (optional) → additional HPO semantic matching
         │
         ▼
-GenosClient (optional) → deep clinical genetics analysis
-        │
-        ▼
 DualDynamicScorer → seekrare_score per variant
-        │
-        ▼
-AlphaFoldClient (optional) → protein structure validation
         │
         ▼
 Ranked Candidate Variants (personalized top-K)
@@ -307,62 +94,240 @@ Ranked Candidate Variants (personalized top-K)
 
 ---
 
-## 📁 Project Structure
+## 📁 项目结构
 
 ```
 seekrare/
 ├── README.md
 ├── pyproject.toml
 ├── requirements.txt
-├── scripts/
-│   ├── bcftools_preprocess.sh        # VCF bcftools 预处理
-│   ├── vcf_to_gt_csv.py              # VCF → GT CSV
-│   ├── annotate_vcf_csv_by_ncbi_gtf.py # GTF 基因注释
-│   └── merge_filter_clinvar_with_distance.py  # ClinVar 注释
+├── .gitignore
+│
+├── scripts/                               # 原始脚本（Stage 1）
+│   ├── bcftools_preprocess.sh             # 家系 VCF 过滤 (bash)
+│   ├── compound_het_filter.py              # 复合杂合精细过滤 (Python)
+│   ├── vcf_to_gt_csv.py                   # VCF → GT CSV
+│   ├── annotate_vcf_csv_by_ncbi_gtf.py    # GTF 基因注释
+│   ├── merge_filter_clinvar_with_distance.py  # ClinVar + 距离
+│   └── annotate_wgs_gtex.py               # GTEx eQTL 注释 (原始脚本)
+│
 └── src/seekrare/
-    ├── pipeline.py                   # 全流程编排器
-    ├── preprocess/
-    │   ├── vcf_to_gt.py
-    │   ├── gene_annotation.py
-    │   └── clinvar_annotation.py
-    ├── annotation/
-    │   ├── combiner.py              # 多源注释合并
-    │   └── hpo_matcher.py           # HPO 语义匹配
-    ├── llm/
-    │   ├── symptom_parser.py         # LLM 症状解析
-    │   ├── genos_client.py          # Genos 临床 LLM
-    │   └── alphafold_client.py      # AlphaFold 结构预测
-    └── scoring/
-        ├── engine.py                # 双动态打分引擎
-        └── ranker.py                # 排序输出
+    ├── __init__.py
+    ├── pipeline.py                        # 三阶段流水线编排器
+    │
+    ├── preprocess/                         # Stage 1 Python 封装
+    │   ├── vcf_to_gt.py                   # vcf_to_gt_csv()
+    │   ├── gene_annotation.py              # annotate_by_gtf()
+    │   ├── clinvar_annotation.py          # merge_filter_clinvar()
+    │   └── bcftools_wrapper.py            # run_bcftools_preprocess()
+    │
+    ├── annotation/                         # 注释加载器
+    │   ├── clinvar_loader.py              # ClinVar VCF/CSV loader (Stage 1)
+    │   ├── hpo_matcher.py                 # HPO ontology 语义匹配 (Stage 3)
+    │   ├── gtex_eqtl.py                   # GTEx eQTL 注释 (Stage 2)
+    │   ├── alphafold3.py                  # AlphaFold3 + GenosAnnotationStub (Stage 2, STUB)
+    │   └── combiner.py                    # 多源注释合并工具
+    │
+    ├── llm/                               # LLM 模块 (Stage 3)
+    │   └── symptom_parser.py              # LLMSymptomParser
+    │
+    └── scoring/                           # 打分与排序 (Stage 3)
+        ├── engine.py                      # DualDynamicScorer
+        └── ranker.py                     # rank_variants()
 ```
 
 ---
 
-## ⚙️ Configuration
+## 🔧 安装（当前版本未发布 PyPI，请从源码安装）
 
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `gtf_file` | NCBI genomic.gtf 基因注释文件 | Required |
-| `clinvar_csv` | ClinVar CSV 致病性注释 | Optional |
-| `ref_fasta` | GRCh38 参考基因组 | Required for bcftools |
-| `dbSNP_vcf` | dbSNP VCF 常见变异过滤 | Optional |
-| `max_af` | Max gnomAD allele frequency | 0.01 |
-| `llm_provider` | "openai", "anthropic", "local", "genos" | "openai" |
-| `llm_model` | Model name | "gpt-4o" |
-| `top_k` | Return top-K candidates | 50 |
+```bash
+# 克隆 GitHub 仓库
+git clone https://github.com/wangz1lu/SeekRare.git
+cd SeekRare
+
+# 创建 Python 3.10+ 虚拟环境（推荐）
+python3 -m venv .venv
+source .venv/bin/activate   # Linux/macOS
+# .venv\Scripts\activate     # Windows
+
+# 安装（开发模式，editable）
+pip install -e .
+
+# 或只安装核心依赖
+pip install -r requirements.txt
+```
+
+**requirements.txt 内容：**
+```
+pysam>=0.21
+pandas>=2.0
+numpy>=1.24
+pyarrow>=14.0
+pyyaml>=6.0
+openai>=1.0
+anthropic>=0.18
+tqdm>=4.66
+loguru>=0.7
+biopython>=1.83
+requests>=2.31
+```
+
+**可选依赖：**
+```bash
+pip install pyhpo>=3.0    # HPO ontology 语义匹配（需要科学上网）
+```
 
 ---
 
-## 🔬 Scientific Rationale
+## 🚀 快速开始
 
-### Why dual-dynamic?
+### 1. 准备文件
 
-| Dimension | Traditional | SeekRare |
-|-----------|------------|----------|
-| **Column weights** | Fixed at pipeline design | **LLM-adjusted per patient** |
-| **HPO relevance** | Binary match | **Semantic similarity to patient symptoms** |
-| **Output** | One-size-fits-all | **Personalized ranking** |
+Stage 1 需要以下四个文件（请从对应地址下载）：
+
+| 文件 | 推荐下载地址 |
+|------|------------|
+| GRCh38 参考基因组 | https://ftp.ensembl.org/pub/fasta/homo_sapiens/dna/ |
+| NCBI genomic.gtf | https://ftp.ensembl.org/pub/gtf/homo_sapiens/ |
+| ClinVar VCF | https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf/ |
+| dbSNP VCF | https://ftp.ncbi.nlm.nih.gov/snp/ |
+
+### 2. 基本使用
+
+```python
+from seekrare import SeekRarePipeline
+
+# 初始化（填入你的文件路径）
+pipeline = SeekRarePipeline(
+    # ── Stage 1 ──────────────────────────────────────────────
+    vcf_proband="/path/to/child.vcf.gz",
+    vcf_father="/path/to/father.vcf.gz",   # 可选，无则跳过家系过滤
+    vcf_mother="/path/to/mother.vcf.gz",
+    ref_fasta="/path/to/GRCh38.fa",
+    gtf_file="/path/to/genomic.gtf",
+    clinvar_vcf="/path/to/clinvar.vcf.gz",
+    dbSNP_vcf="/path/to/dbsnp.vcf.gz",     # 可选
+
+    # ── Stage 3 ──────────────────────────────────────────────
+    llm_provider="openai",
+    llm_model="gpt-4o",
+    api_key=os.getenv("OPENAI_API_KEY"),
+)
+
+# Stage 1 only（最快验证流程是否通）
+df = pipeline.stage1_preprocess()
+df.to_csv("variants_annotated.csv", index=False)
+
+# 完整三阶段
+result = pipeline.run(
+    symptoms="智力障碍，癫痫，全身肌张力低，脑电图显示全面性棘慢波发放",
+)
+result.to_csv("candidates.csv", index=False)
+```
+
+### 3. Stage 2 高级注释（可选）
+
+```python
+# Stage 1 + Stage 2
+pipeline.stage1_preprocess()
+df = pipeline.stage2_advanced_annotation()  # 需要配置 gtex_tissue_dir 等
+
+# Stage 1 + Stage 2 + Stage 3
+result = pipeline.run(
+    symptoms="...",
+    skip_stage2=False,  # 启用 Stage 2（需配置 gtex_tissue_dir 等）
+)
+```
+
+### 4. Stage 1 脚本独立使用
+
+```bash
+# bcftools 预处理（需要 bcftools 和参考基因组）
+REF=/path/GRCh38.fa DBSNP=/path/dbsnp.vcf.gz \
+bash scripts/bcftools_preprocess.sh /outdir father.vcf.gz mother.vcf.gz child.vcf.gz
+
+# VCF → GT CSV
+python -m seekrare.preprocessing.vcf_to_gt input.vcf output.csv
+
+# GTF 基因注释
+python -m seekrare.preprocessing.gene_annotation input.csv genomic.gtf output.csv
+
+# ClinVar + OMIM + HPO 注释
+python -m seekrare.preprocessing.clinvar_annotation annotated.csv clinvar.vcf.gz output.csv
+```
+
+---
+
+## ⚙️ 配置参数
+
+### SeekRareConfig 主要参数
+
+| 参数 | 说明 | 必填 | 默认值 |
+|------|------|------|--------|
+| `vcf_proband` | 先证者 VCF | ✅ | — |
+| `vcf_father` | 父亲 VCF | ❌ | None |
+| `vcf_mother` | 母亲 VCF | ❌ | None |
+| `ref_fasta` | GRCh38 参考基因组 FASTA | ❌* | None |
+| `gtf_file` | NCBI genomic.gtf | ❌* | None |
+| `clinvar_vcf` | ClinVar VCF | ❌* | None |
+| `dbSNP_vcf` | dbSNP VCF | ❌ | None |
+| `gtex_tissue_dir` | GTEx eQTL parquet 目录 | ❌ | None |
+| `alphafold3_mode` | "server" 或 "colabfold" | ❌ | None |
+| `llm_provider` | "openai" / "anthropic" / "local" | ❌ | "openai" |
+| `llm_model` | 模型名 | ❌ | "gpt-4o" |
+| `top_k` | 返回 top-K 候选数 | ❌ | 50 |
+
+*无家系 VCF 时，ref_fasta/gtf_file/clinvar_vcf 可选（跳过对应步骤）
+
+---
+
+## 📊 输出列说明
+
+### Stage 1 输出（基本注释）
+
+| 列名 | 来源 | 说明 |
+|------|------|------|
+| CHROM, POS, REF, ALT | VCF | 变异坐标 |
+| GT_proband, GT_father, GT_mother | VCF | 基因型 |
+| inheritance_type | bcftools | denovo/recessive/compound_het/xlinked |
+| gene_name | GTF | 基因符号 |
+| feature_type | GTF | exon/CDS/UTR... |
+| clinvar_sig | ClinVar | 致病性评级 |
+| clinvar_mc | ClinVar | 分子 consequence |
+| min_distance | ClinVar | 距最近 ClinVar 变异距离 |
+| omim_diseases | ClinVar/OMIM | OMIM 疾病 |
+| omim_inheritance | OMIM | 遗传模式 |
+| hpo_terms | ClinVar/OMIM | 基因关联的 HPO terms |
+
+### Stage 2 输出（追加列）
+
+| 列名 | 来源 | 说明 |
+|------|------|------|
+| eqtl_gene | GTEx | eQTL 关联基因 |
+| eqtl_pval | GTEx | eQTL p-value |
+| eqtl_tissue | GTEx | eQTL 组织来源 |
+| alphafold_predicted | AlphaFold3 | 是否已预测（STUB） |
+| genos_pathogenicity | Genos | Genos 模型评分（STUB） |
+
+### Stage 3 输出（追加列）
+
+| 列名 | 说明 |
+|------|------|
+| seekrare_score | 双动态打分最终分数 |
+| hpo_similarity | HPO 语义相似度 |
+| rank | 最终排名 |
+
+---
+
+## 🔬 科学原理
+
+### 双动态打分（Dual-Dynamic Scoring）
+
+| 维度 | 传统方法 | SeekRare |
+|------|---------|---------|
+| Column weights | 固定权重 | **LLM 按患者症状动态调整** |
+| HPO relevance | 二元匹配 | **语义相似度到患者症状** |
+| 输出 | 通用排序 | **个性化排名** |
 
 ---
 
