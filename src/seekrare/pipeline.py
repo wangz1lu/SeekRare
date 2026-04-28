@@ -54,7 +54,7 @@ from typing import Optional, Union
 import pandas as pd
 from loguru import logger
 
-from seekrare.preprocessing import (
+from seekrare.preprocess import (
     vcf_to_gt_csv,
     annotate_by_gtf,
     merge_filter_clinvar,

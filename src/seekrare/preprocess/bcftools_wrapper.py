@@ -4,7 +4,7 @@ bcftools_wrapper.py — bcftools 家系过滤流水线的 Python 调用接口
 提供 Python 级别的 API，可直接 import 使用，也可调用底层 bash 脚本。
 
 Usage:
-    from seekrare.preprocessing import run_bcftools_preprocess
+    from seekrare.preprocess import run_bcftools_preprocess
 
     result = run_bcftools_preprocess(
         outdir="/tmp/seekrare_preprocess",
