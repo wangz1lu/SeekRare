@@ -255,7 +255,7 @@ class SeekRarePipeline:
             clinvar_csv = wd / "3_clinvar_annotated.csv"
             if not clinvar_csv.exists():
                 merge_filter_clinvar(
-                    str(gt_csv),
+                    str(gtf_csv),
                     str(cfg.clinvar_vcf),
                     str(clinvar_csv),
                 )
