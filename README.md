@@ -7,6 +7,26 @@
 
 ---
 
+## 🔧 安装（当前版本未发布 PyPI，请从源码安装）
+
+```bash
+# 克隆 GitHub 仓库
+git clone -b develop https://github.com/wangz1lu/SeekRare.git
+cd SeekRare
+
+# 创建 Python 3.10+ 虚拟环境（推荐）
+python3 -m venv .venv
+source .venv/bin/activate   # Linux/macOS
+# .venv\Scripts\activate     # Windows
+
+# 安装（开发模式，editable）
+pip install -e .
+
+# 或只安装核心依赖
+pip install -r requirements.txt
+```
+
+---
 ## 🎯 Core Innovation
 
 Traditional variant prioritization tools apply **fixed, static weights** to annotation columns. SeekRare uses an **LLM-driven dual-dynamic scoring system**:
