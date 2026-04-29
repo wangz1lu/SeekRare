@@ -1,17 +1,16 @@
 """
-clinvar_annotation.py — ClinVar 注释（简化版）
+clinvar_annotation.py — ClinVar 注释
 
 输入:
     - 2_gtf_annotated.csv: GTF 注释后的变异列表（含 gene_name）
-    - clinvar CSV: CHROM, POS, ID, REF, ALT, CLNDISDB, CLNDN, CLNREVSTAT, CLNSIG, CLNVC, ORIGIN
+    - clinvar CSV: CHROM, POS, REF, ALT, CLNDISDB, CLNDN, CLNREVSTAT, CLNSIG, CLNVC, ORIGIN
 
 输出:
-    - 第一列: CPRA = CHROM:POS:REF:ALT（合并主键）
-    - 其余列: CHROM, POS, REF, ALT, in_gene, gene_name, feature_type,
-              [原 GTF 列], D2007018873, CLNDISDB, CLNDN, CLNREVSTAT, CLNSIG, CLNVC, ORIGIN
-    - 匹配不上的 ClinVar 列留空
+    - 第一列: CPRA = CHROM:POS:REF:ALT
+    - CHROM, POS, REF, ALT, in_gene, gene_name, feature_type, D2007018873, ...
+    - CLNDISDB, CLNDN, CLNREVSTAT, CLNSIG, CLNVC, ORIGIN（匹配不上留空）
 
-匹配: CHROM + POS + REF + ALT 四键精确匹配（全部转字符串后匹配）
+匹配: CHROM + POS + REF + ALT 四键精确匹配（全字符串，无 dtype 问题）
 """
 
 from __future__ import annotations
@@ -41,56 +40,20 @@ CLNSIG_MAP = {
 }
 
 
-def _build_cpra(row_or_dict) -> str:
-    """Build CPRA key: CHROM:POS:REF:ALT (all as strings)."""
-    chrom = str(row_or_dict.get("CHROM", "")).strip().lstrip("chr")
-    pos = str(int(float(row_or_dict.get("POS", 0))))
-    ref = str(row_or_dict.get("REF", "")).strip().upper()
-    alt = str(row_or_dict.get("ALT", "")).strip().upper()
-    return f"{chrom}:{pos}:{ref}:{alt}"
-
-
-def _load_clinvar(clinvar_path: str) -> pd.DataFrame:
+def _build_cpra(df: pd.DataFrame) -> pd.Series:
     """
-    加载 ClinVar CSV，构建 CPRA→ClinVar列 的字典。
-    返回 dict: {cpra_key → {col: value, ...}}
+    向量化构建 CPRA 列: CHROM:POS:REF:ALT
+    CHROM 统一去 chr 前缀，REF/ALT 转大写
     """
-    logger.info(f"Loading ClinVar: {clinvar_path}")
-
-    df = pd.read_csv(clinvar_path, dtype=str, low_memory=False)
-    df.columns = df.columns.str.strip()
-
-    # 处理 #CHROM
-    if "#CHROM" in df.columns:
-        df.rename(columns={"#CHROM": "CHROM"}, inplace=True)
-
-    clinvar_cols = ["CLNDISDB", "CLNDN", "CLNREVSTAT", "CLNSIG", "CLNVC", "ORIGIN"]
-    for col in clinvar_cols:
-        if col not in df.columns:
-            df[col] = ""
-
-    # 只保留需要的列
-    df = df[["CHROM", "POS", "REF", "ALT"] + clinvar_cols].copy()
-
-    # 归一化 CHROM
-    df["CHROM"] = df["CHROM"].apply(
-        lambda x: str(x).strip().lstrip("chr").replace("M", "MT")
+    return (
+        df["CHROM"].str.lstrip("chr").astype(str)
+        + ":"
+        + df["POS"].astype(str)
+        + ":"
+        + df["REF"].str.upper()
+        + ":"
+        + df["ALT"].str.upper()
     )
-
-    # 构建 CPRA key
-    df["_cpra"] = df.apply(_build_cpra, axis=1)
-
-    # 转 CLNSIG 数字→文字
-    df["CLNSIG"] = df["CLNSIG"].map(CLNSIG_MAP).fillna(df["CLNSIG"])
-
-    # 去重：同 CPRA 只保留第一个
-    df = df.drop_duplicates(subset=["_cpra"], keep="first")
-
-    # 转 dict: cpra → {CLNDISDB, CLNDN, ...}
-    records = df.set_index("_cpra")[clinvar_cols].to_dict("index")
-
-    logger.info(f"ClinVar loaded: {len(records)} unique CPRA keys")
-    return records
 
 
 def merge_filter_clinvar(
@@ -103,63 +66,99 @@ def merge_filter_clinvar(
 
     参数
     ----
-    input_csv : str
-        2_gtf_annotated.csv 路径
-    clinvar_csv : str
-        ClinVar CSV 路径
-    output_csv : str
-        输出路径
+    input_csv : str   2_gtf_annotated.csv 路径
+    clinvar_csv : str  ClinVar CSV 路径
+    output_csv : str   输出路径
 
     返回
     ----
     pd.DataFrame
-        第一列为 CPRA (CHROM:POS:REF:ALT)，其余列依次为：
-        CHROM, POS, REF, ALT, [原 GTF 列],
+        第一列 CPRA，其余列按顺序:
+        CHROM, POS, REF, ALT, in_gene, gene_name, feature_type, ...,
         D2007018873, CLNDISDB, CLNDN, CLNREVSTAT, CLNSIG, CLNVC, ORIGIN
     """
     input_csv = str(input_csv)
     clinvar_csv = str(clinvar_csv)
     output_csv = str(output_csv)
 
-    # ── 1. 加载 GTF CSV ──────────────────────────────────────────────────────
+    # ── 1. 加载 GTF CSV ─────────────────────────────────────────────────────
     logger.info(f"Loading GTF CSV: {input_csv}")
     df = pd.read_csv(input_csv, dtype=str)
     logger.info(f"  Variants: {len(df)}")
 
-    # ── 2. 构建 CPRA 列 ─────────────────────────────────────────────────────
-    logger.info("Building CPRA keys...")
-    df["CPRA"] = df.apply(_build_cpra, axis=1)
+    # ── 2. 向量化构建 CPRA ──────────────────────────────────────────────────
+    logger.info("Building CPRA keys (vectorized)...")
+    df["CPRA"] = _build_cpra(df)
+    logger.info(f"  CPRA built, sample: {df['CPRA'].iloc[0]}")
 
     # ── 3. 加载 ClinVar ─────────────────────────────────────────────────────
-    clin_dict = _load_clinvar(clinvar_csv)
+    logger.info(f"Loading ClinVar: {clinvar_csv}")
 
-    # ── 4. 用 CPRA 字典填充 ClinVar 列 ─────────────────────────────────────
+    cv = pd.read_csv(clinvar_csv, dtype=str, low_memory=False)
+    cv.columns = cv.columns.str.strip()
+
+    if "#CHROM" in cv.columns:
+        cv.rename(columns={"#CHROM": "CHROM"}, inplace=True)
+
     clinvar_cols = ["CLNDISDB", "CLNDN", "CLNREVSTAT", "CLNSIG", "CLNVC", "ORIGIN"]
     for col in clinvar_cols:
-        df[col] = ""   # 先填空
+        if col not in cv.columns:
+            cv[col] = ""
 
-    n_matched = 0
-    for idx, cpra in enumerate(df["CPRA"]):
-        if cpra in clin_dict:
-            n_matched += 1
-            for col in clinvar_cols:
-                df.at[idx, col] = clin_dict[cpra].get(col, "")
+    cv = cv[["CHROM", "POS", "REF", "ALT"] + clinvar_cols].copy()
 
-        if idx > 0 and idx % 5_000_000 == 0:
-            logger.info(f"  Processed {idx:,} / {len(df):,} variants ({n_matched:,} matched)")
+    # 归一化 CHROM（去 chr 前缀，chrM→MT）
+    cv["CHROM"] = cv["CHROM"].str.lstrip("chr").str.replace("M", "MT", regex=False)
 
-    logger.info(f"  Matched: {n_matched}/{len(df)} variants with ClinVar records")
+    # 构建 ClinVar CPRA
+    cv["CPRA"] = (
+        cv["CHROM"].astype(str)
+        + ":"
+        + cv["POS"].astype(str)
+        + ":"
+        + cv["REF"].str.upper()
+        + ":"
+        + cv["ALT"].str.upper()
+    )
 
-    # ── 5. 调整列顺序 ────────────────────────────────────────────────────────
-    # CPRA 作为第一列，其余按: CHROM, POS, REF, ALT, 原GTF列, GT列, ClinVar列
-    priority_first = ["CPRA", "CHROM", "POS", "REF", "ALT"]
-    priority_last = clinvar_cols   # CLNDISDB CLNDN CLNREVSTAT CLNSIG CLNVC ORIGIN
+    # CLNSIG 数字→文字
+    cv["CLNSIG"] = cv["CLNSIG"].map(CLNSIG_MAP).fillna(cv["CLNSIG"])
 
-    cols = [c for c in df.columns if c in priority_first]
-    rest = [c for c in df.columns if c not in priority_first and c not in priority_last]
-    last = [c for c in df.columns if c in priority_last]
+    # 去重：同 CPRA 保留第一个
+    cv = cv.drop_duplicates(subset=["CPRA"], keep="first")
 
-    df = df[cols + rest + last]
+    # ── 4. pandas merge（CPRA 对 CPRA，字符串对字符串）──────────────────────────
+    logger.info("Merging on CPRA...")
+    n_before = len(df)
+    df = df.merge(
+        cv[["CPRA"] + clinvar_cols],
+        on="CPRA",
+        how="left",
+    )
+    n_matched = df["CLNSIG"].notna().sum()
+    logger.info(f"  Matched: {n_matched}/{n_before} variants with ClinVar records")
+
+    # ── 5. 整理列顺序 ────────────────────────────────────────────────────────
+    # 优先级顺序
+    first_cols = ["CPRA", "CHROM", "POS", "REF", "ALT"]
+    # 原 GTF 的核心注释列
+    gtf_cols = ["in_gene", "gene_name", "feature_type"]
+    # ClinVar 列放最后
+    last_cols = clinvar_cols
+
+    # 收集已有列
+    ordered = []
+    for c in first_cols:
+        if c in df.columns:
+            ordered.append(c)
+    for c in df.columns:
+        if c not in first_cols and c not in last_cols:
+            ordered.append(c)
+    for c in last_cols:
+        if c in df.columns:
+            ordered.append(c)
+
+    df = df[ordered]
 
     # ── 6. 保存 ──────────────────────────────────────────────────────────────
     df.to_csv(output_csv, index=False)
