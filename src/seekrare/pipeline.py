@@ -230,16 +230,46 @@ class SeekRarePipeline:
                     min_qual=20,
                 )
 
-        # ── 3. VCF → GT CSV ─────────────────────────────────────────────────
+        # ── 3. dbSNP common 过滤 ───────────────────────────────────────────────
+        # 剔除 dbSNP 中的常见变异（-T ^file = 排除 file 中的变异）
+        proband_vcf = cfg.vcf_proband
+        if cfg.dbSNP_vcf and cfg.ref_fasta:
+            dbSNP_filtered = wd / "proband.nocommon.vcf.gz"
+            if not dbSNP_filtered.exists():
+                _assert_file(cfg.dbSNP_vcf, "dbSNP VCF")
+                _assert_file(cfg.ref_fasta, "参考基因组")
+                logger.info(f"Step 3: Exclude dbSNP common variants → {dbSNP_filtered}")
+                import subprocess
+                result = subprocess.run(
+                    [
+                        "bcftools", "view",
+                        "-T", f"^{cfg.dbSNP_vcf}",
+                        "-Oz", "-o", str(dbSNP_filtered),
+                        str(proband_vcf),
+                    ],
+                    capture_output=True, text=True,
+                )
+                if result.returncode != 0:
+                    logger.warning(f"bcftools dbSNP filter failed: {result.stderr}")
+                else:
+                    logger.info(f"  dbSNP filtered VCF: {dbSNP_filtered}")
+                    proband_vcf = dbSNP_filtered
+            else:
+                proband_vcf = dbSNP_filtered
+                logger.info(f"  [跳过] dbSNP filtered VCF 已存在: {dbSNP_filtered}")
+        else:
+            logger.info("Step 3: dbSNP 过滤跳过（未配置 dbSNP_vcf 或 ref_fasta）")
+
+        # ── 4. VCF → GT CSV ─────────────────────────────────────────────────
         _assert_file(cfg.vcf_proband, "先证者 VCF")
         gt_csv = wd / "1_gt.csv"
         if not gt_csv.exists():
-            vcf_to_gt_csv(str(cfg.vcf_proband), str(gt_csv))
+            vcf_to_gt_csv(str(proband_vcf), str(gt_csv))
         df = pd.read_csv(gt_csv, dtype=str)
         df["POS"] = pd.to_numeric(df["POS"], errors="coerce").astype("Int64")
         logger.info(f"Step 3: VCF → GT CSV: {len(df)} variants")
 
-        # ── 4. GTF gene annotation ───────────────────────────────────────────
+        # ── 5. GTF gene annotation ───────────────────────────────────────────
         if cfg.gtf_file:
             _assert_file(cfg.gtf_file, "GTF 文件")
             gtf_csv = wd / "2_gtf_annotated.csv"
@@ -249,7 +279,7 @@ class SeekRarePipeline:
             df = pd.read_csv(str(gtf_csv), dtype=str) if gtf_csv.exists() else df
             df["POS"] = pd.to_numeric(df["POS"], errors="coerce").astype("Int64")
 
-        # ── 5. ClinVar + OMIM + HPO annotation ───────────────────────────────
+        # ── 6. ClinVar + OMIM + HPO annotation ───────────────────────────────
         if cfg.clinvar_vcf:
             _assert_file(cfg.clinvar_vcf, "ClinVar VCF")
             clinvar_csv = wd / "3_clinvar_annotated.csv"
@@ -263,7 +293,7 @@ class SeekRarePipeline:
             df = pd.read_csv(str(clinvar_csv), dtype=str) if clinvar_csv.exists() else df
             df["POS"] = pd.to_numeric(df["POS"], errors="coerce").astype("Int64")
 
-        # ── 6. 标注 inheritance_type 列 ─────────────────────────────────────
+        # ── 7. 标注 inheritance_type 列 ─────────────────────────────────────
         if bcf_result:
             df = self._annotate_inheritance_type(df, bcf_result)
 
