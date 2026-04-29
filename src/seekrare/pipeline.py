@@ -140,10 +140,26 @@ class SeekRarePipeline:
     Stage 3: LLM 分析（打分 + 排序）
     """
 
-    def __init__(self, config: Union[SeekRareConfig, dict]):
-        if isinstance(config, dict):
-            config = SeekRareConfig(**config)
-        self.cfg = config
+    def __init__(self, config: Union[SeekRareConfig, dict, None] = None, /, **kwargs):
+        """
+        支持两种初始化方式:
+
+        1. 关键字参数直接传:
+               SeekRarePipeline(vcf_proband="child.vcf.gz", gtf_file="...", ...)
+        2. config dict 传参:
+               SeekRarePipeline({"vcf_proband": "child.vcf.gz", ...})
+        """
+        if config is not None and kwargs:
+            raise TypeError("不能同时传入 config 和关键字参数")
+        if config is not None:
+            if isinstance(config, dict):
+                cfg_dict = config
+            else:
+                cfg_dict = vars(config)
+        else:
+            cfg_dict = kwargs
+        cfg = SeekRareConfig(**cfg_dict)
+        self.cfg = cfg
         self._llm: Optional[LLMSymptomParser] = None
         self._llm_interpretation: Optional[dict] = None
         self._stage1_df: Optional[pd.DataFrame] = None
