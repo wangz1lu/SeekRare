@@ -81,7 +81,7 @@ class Stage3Scorer:
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.0,
-                max_tokens=4096,
+                max_tokens=16384,
             )
             content = resp.choices[0].message.content
 
@@ -93,7 +93,7 @@ class Stage3Scorer:
                 system="You are a clinical genetics scoring assistant. Return ONLY valid JSON.",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.0,
-                max_tokens=4096,
+                max_tokens=16384,
             )
             content = resp.content[0].text
 
