@@ -546,3 +546,64 @@ def _assert_file(path: Union[str, Path], label: str) -> Path:
             f"下载地址参考: https://github.com/wangz1lu/SeekRare#data-resources"
         )
     return p
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Stage 3: LLM Scoring & Ranking
+# ─────────────────────────────────────────────────────────────────────────────
+
+def stage3_score_and_rank(
+    csv_path: str,
+    symptoms: str,
+    output_path: Optional[str] = None,
+    top_k: int = 50,
+    llm_provider: str = "openai",
+    llm_model: str = "gpt-4o",
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
+) -> pd.DataFrame:
+    """
+    Stage 3: LLM 驱动的变异排序。
+
+    流程:
+    1. 解析 CLNDISDB / CLNDN 的复杂标签，统计 unique 标签
+    2. LLM 根据患者症状，给每个列的每个取值打相关性分数
+    3. 本地 Python 计算每行加权总分
+    4. 排序，输出 top-K
+
+    Parameters
+    ----------
+    csv_path : str
+        Stage 1 输出 CSV (3_clinvar_annotated.csv)
+    symptoms : str
+        患者症状描述
+    output_path : str, optional
+        保存路径
+    top_k : int
+        返回 top-K 候选
+    llm_provider / llm_model / api_key / base_url
+        LLM 配置
+
+    Returns
+    -------
+    pd.DataFrame
+        排序后的 top-K 候选（含 seekrare_score 和 rank 列）
+    """
+    from seekrare.scoring.stage3_annotate import Stage3Scorer
+
+    scorer = Stage3Scorer(
+        csv_path=csv_path,
+        symptoms=symptoms,
+        top_k=top_k,
+        llm_provider=llm_provider,
+        llm_model=llm_model,
+        api_key=api_key,
+        base_url=base_url,
+    )
+
+    result = scorer.run()
+
+    if output_path:
+        scorer.save(result, output_path)
+
+    return result
