@@ -231,34 +231,30 @@ class SeekRarePipeline:
                 )
 
         # ── 3. dbSNP common 过滤 ───────────────────────────────────────────────
-        # 剔除 dbSNP 中的常见变异（-T ^file = 排除 file 中的变异）
+        # 使用 scripts/filter_dbsnp.py 自动处理染色体命名不一致问题
+        from seekrare.preprocess.dbsnp_filter import run_dbsnp_filter
         proband_vcf = cfg.vcf_proband
-        if cfg.dbSNP_vcf and cfg.ref_fasta:
+        if cfg.dbSNP_vcf:
             dbSNP_filtered = wd / "proband.nocommon.vcf.gz"
             if not dbSNP_filtered.exists():
                 _assert_file(cfg.dbSNP_vcf, "dbSNP VCF")
-                _assert_file(cfg.ref_fasta, "参考基因组")
                 logger.info(f"Step 3: Exclude dbSNP common variants → {dbSNP_filtered}")
-                import subprocess
-                result = subprocess.run(
-                    [
-                        "bcftools", "view",
-                        "-T", f"^{cfg.dbSNP_vcf}",
-                        "-Oz", "-o", str(dbSNP_filtered),
-                        str(proband_vcf),
-                    ],
-                    capture_output=True, text=True,
+                result = run_dbsnp_filter(
+                    input_vcf=str(proband_vcf),
+                    dbsnp_vcf=str(cfg.dbSNP_vcf),
+                    output_vcf=str(dbSNP_filtered),
                 )
-                if result.returncode != 0:
-                    logger.warning(f"bcftools dbSNP filter failed: {result.stderr}")
-                else:
-                    logger.info(f"  dbSNP filtered VCF: {dbSNP_filtered}")
-                    proband_vcf = dbSNP_filtered
+                logger.info(
+                    f"  dbSNP filtered: {result.get('n_removed', '?')}"
+                    f"/{result.get('n_before', '?')} removed "
+                    f"(input_fmt={result.get('input_format')}, dbsnp_fmt={result.get('dbsnp_format')})"
+                )
+                proband_vcf = dbSNP_filtered
             else:
                 proband_vcf = dbSNP_filtered
                 logger.info(f"  [跳过] dbSNP filtered VCF 已存在: {dbSNP_filtered}")
         else:
-            logger.info("Step 3: dbSNP 过滤跳过（未配置 dbSNP_vcf 或 ref_fasta）")
+            logger.info("Step 3: dbSNP 过滤跳过（未配置 dbSNP_vcf）")
 
         # ── 4. VCF → GT CSV ─────────────────────────────────────────────────
         _assert_file(cfg.vcf_proband, "先证者 VCF")
