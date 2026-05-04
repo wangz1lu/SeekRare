@@ -607,3 +607,102 @@ def stage3_score_and_rank(
         scorer.save(result, output_path)
 
     return result
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Stage 2: Advanced Annotation (eQTL)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def stage2_eqtl_annotation(
+    stage1_csv: str,
+    tissue_dir: str,
+    symptoms: str,
+    output_csv: Optional[str] = None,
+    min_pval: float = 1e-3,
+    llm_provider: str = "openai",
+    llm_model: str = "deepseek-v4-flash",
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
+) -> pd.DataFrame:
+    """
+    Stage 2: LLM 筛选相关组织 → GTEx eQTL 注释。
+
+    流程:
+    1. 扫描 tissue_dir，列出所有可用组织
+    2. LLM 根据症状选择最相关的 3~8 个组织
+    3. 对选中组织执行 eQTL 匹配（结果追加到 Stage 1 CSV 作为新列）
+
+    参数
+    ----
+    stage1_csv : str
+        Stage 1 输出 CSV 路径
+    tissue_dir : str
+        GTEx eQTL parquet 目录（每个组织一个 .parquet）
+    symptoms : str
+        患者症状描述
+    output_csv : str, optional
+        输出路径
+    min_pval : float
+        eQTL p-value 阈值
+    llm_* : LLM 配置
+
+    返回
+    ----
+    pd.DataFrame
+        Stage 1 基础上追加 eQTL 列
+    """
+    from openai import OpenAI
+
+    logger.info("=" * 60)
+    logger.info("Stage 2: GTEx eQTL Annotation")
+    logger.info("=" * 60)
+
+    # ── 1. 扫描可用组织 ───────────────────────────────────────────────────
+    tissues = get_available_tissues(tissue_dir)
+    logger.info(f"  可用组织: {len(tissues)} 个")
+
+    # ── 2. LLM 选择相关组织 ──────────────────────────────────────────────
+    logger.info("  LLM 筛选相关组织...")
+    prompt = build_llm_tissue_prompt(symptoms, tissues)
+
+    client = OpenAI(api_key=api_key or "", base_url=base_url or "https://api.deepseek.com")
+    resp = client.chat.completions.create(
+        model=llm_model,
+        messages=[
+            {"role": "system", "content": "你是一个临床遗传学和组织学专家。根据患者症状选择最相关的 GTEx 组织。"},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.0,
+        max_tokens=512,
+    )
+
+    raw = resp.choices[0].message.content
+    # 提取 JSON
+    import re, json
+    m = re.search(r'\{[^}]+\}', raw, re.DOTALL)
+    if m:
+        parsed = json.loads(m.group())
+    else:
+        parsed = {}
+
+    selected = parsed.get("selected_tissues", [])
+    # 过滤：只保留在可用组织里的
+    selected = [t for t in selected if t in tissues]
+    if not selected:
+        logger.warning("  LLM 未返回有效组织，使用全部组织")
+        selected = tissues[:5]
+    logger.info(f"  LLM 选中的组织 ({len(selected)}): {selected}")
+
+    # ── 3. eQTL 注释 ────────────────────────────────────────────────────────
+    df = run_eqtl_annotation(
+        stage1_csv=stage1_csv,
+        tissue_dir=tissue_dir,
+        selected_tissues=selected,
+        output_csv=output_csv,
+        min_pval=min_pval,
+    )
+
+    if output_csv:
+        logger.info(f"  Stage 2 完成: {output_csv}")
+
+    return df
