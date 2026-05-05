@@ -105,12 +105,36 @@ def parse_variant_id(chrom: str, pos: str, ref: str, alt: str, suffix: str) -> s
 def stage2_eqtl_annotation(
     stage1_csv: str,
     tissue_dir: str,
-    selected_tissues: list[str],
+    selected_tissues: Optional[list[str]] = None,
     output_csv: Optional[str] = None,
     min_pval: float = 1e-3,
+    *,
+    symptoms: Optional[str] = None,
+    llm_model: Optional[str] = None,
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
+    llm_temperature: float = 0.0,
 ) -> pd.DataFrame:
     """
     对 Stage 1 CSV 进行 eQTL 注释。
+
+    支持两种调用模式：
+
+    模式A — 手动指定组织（直接传入）:
+        stage2_eqtl_annotation(
+            stage1_csv="3_clinvar_annotated.csv",
+            tissue_dir="/path/to/GTEx_parquet/",
+            selected_tissues=["Brain_Cortex", "Eye_Retina"],
+        )
+
+    模式B — LLM 自动选组织:
+        stage2_eqtl_annotation(
+            stage1_csv="3_clinvar_annotated.csv",
+            tissue_dir="/path/to/GTEx_parquet/",
+            symptoms="眼部病变，视网膜色素变性",
+            llm_model="deepseek-v4-flash",
+            api_key="sk-xxxx",
+        )
 
     参数
     ----
@@ -118,12 +142,22 @@ def stage2_eqtl_annotation(
         Stage 1 输出 CSV (3_clinvar_annotated.csv)
     tissue_dir : str
         GTEx eQTL parquet 文件目录（每组织一个 .parquet）
-    selected_tissues : list[str]
-        LLM 筛选出的相关组织列表
+    selected_tissues : list[str], optional
+        直接指定相关组织列表（与 symptoms 二选一）
     output_csv : str, optional
         输出路径
     min_pval : float
         eQTL p-value 阈值 (default: 1e-3)
+    symptoms : str, optional
+        患者症状描述（LLM 自动选组织用）
+    llm_model : str, optional
+        LLM 模型名
+    api_key : str, optional
+        API key
+    base_url : str, optional
+        API base URL
+    llm_temperature : float
+        LLM temperature
 
     返回
     ----
@@ -132,6 +166,37 @@ def stage2_eqtl_annotation(
         eqtl_gene, eqtl_slope, eqtl_pval, eqtl_tissue
         （无 eQTL 注释则留空）
     """
+    # ── LLM 自动选组织 ───────────────────────────────────────────────
+    if selected_tissues is None and symptoms is not None:
+        if llm_model is None or api_key is None:
+            raise ValueError("LLM 自动选组织模式需要 llm_model 和 api_key")
+        available = get_available_tissues(tissue_dir)
+        prompt = build_llm_tissue_prompt(symptoms, available)
+        logger.info(f"LLM 选择相关组织（症状: {symptoms[:30]}...）")
+        import openai
+        client_kwargs = {"api_key": api_key}
+        if base_url:
+            client_kwargs["base_url"] = base_url
+        client = openai.OpenAI(**client_kwargs)
+        resp = client.chat.completions.create(
+            model=llm_model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=llm_temperature,
+            max_tokens=2048,
+        )
+        raw = resp.choices[0].message.content.strip
+        import json, re
+        raw_text = resp.choices[0].message.content.strip
+        m = re.search(r'\{[^{}]*"selected_tissues"[^{}]*\}', raw_text, re.DOTALL)
+        if m:
+            selected_tissues = json.loads(m.group())["selected_tissues"]
+        else:
+            selected_tissues = json.loads(raw_text)["selected_tissues"]
+        logger.info(f"  LLM 选择: {selected_tissues}")
+
+    if selected_tissues is None:
+        raise ValueError("必须提供 selected_tissues 或 symptoms（LLM 自动选组织）")
+
     logger.info(f"Stage 2: GTEx eQTL annotation ({len(selected_tissues)} tissues)")
     logger.info(f"  Tissue dir: {tissue_dir}")
 
