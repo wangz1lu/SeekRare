@@ -225,8 +225,10 @@ stage2_eqtl_annotation(
     stage1_csv="seekrare_output/3_clinvar_annotated.csv",
     tissue_dir="/path/to/GTEx_Analysis_v11_eQTL_parquet/",
     symptoms="眼部病变，视网膜色素变性",
+    llm_provider="openai",
     llm_model="deepseek-v4-flash",
     api_key="sk-xxxxxxxx",
+    base_url="https://api.deepseek.com",
 )
 ```
 

@@ -110,6 +110,7 @@ def stage2_eqtl_annotation(
     min_pval: float = 1e-3,
     *,
     symptoms: Optional[str] = None,
+    llm_provider: str = "openai",
     llm_model: Optional[str] = None,
     api_key: Optional[str] = None,
     base_url: Optional[str] = None,
@@ -150,6 +151,8 @@ def stage2_eqtl_annotation(
         eQTL p-value 阈值 (default: 1e-3)
     symptoms : str, optional
         患者症状描述（LLM 自动选组织用）
+    llm_provider : str
+        LLM 提供商：openai 或 anthropic (default: openai)
     llm_model : str, optional
         LLM 模型名
     api_key : str, optional
@@ -173,20 +176,34 @@ def stage2_eqtl_annotation(
         available = get_available_tissues(tissue_dir)
         prompt = build_llm_tissue_prompt(symptoms, available)
         logger.info(f"LLM 选择相关组织（症状: {symptoms[:30]}...）")
-        import openai
-        client_kwargs = {"api_key": api_key}
-        if base_url:
-            client_kwargs["base_url"] = base_url
-        client = openai.OpenAI(**client_kwargs)
-        resp = client.chat.completions.create(
-            model=llm_model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=llm_temperature,
-            max_tokens=2048,
-        )
-        raw = resp.choices[0].message.content.strip
+        if llm_provider == "openai":
+            import openai
+            client_kwargs = {"api_key": api_key}
+            if base_url:
+                client_kwargs["base_url"] = base_url
+            client = openai.OpenAI(**client_kwargs)
+            resp = client.chat.completions.create(
+                model=llm_model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=llm_temperature,
+                max_tokens=2048,
+            )
+            raw_text = resp.choices[0].message.content.strip
+        elif llm_provider == "anthropic":
+            import anthropic
+            client_kwargs = {"api_key": api_key}
+            if base_url:
+                client_kwargs["base_url"] = base_url
+            client = anthropic.Anthropic(**client_kwargs)
+            resp = client.messages.create(
+                model=llm_model,
+                max_tokens=2048,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            raw_text = resp.content[0].text.strip
+        else:
+            raise ValueError(f"Unsupported llm_provider: {llm_provider} (supported: openai, anthropic)")
         import json, re
-        raw_text = resp.choices[0].message.content.strip
         m = re.search(r'\{[^{}]*"selected_tissues"[^{}]*\}', raw_text, re.DOTALL)
         if m:
             selected_tissues = json.loads(m.group())["selected_tissues"]
