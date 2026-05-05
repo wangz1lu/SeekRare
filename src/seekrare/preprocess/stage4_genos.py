@@ -23,7 +23,7 @@ Pipeline（4步）:
 Usage:
     from seekrare.preprocess.stage4_genos import run_genos_analysis
     result = run_genos_analysis(
-        sites=[("chr1", 123456, "A", "G"), ...],  # 或从 stage3 CSV 读取
+        sites=[("chr1", 123456, "A", "G"), ...],
         genome_fa="/path/to/GRCh38.fa",
         model_path="/path/to/Genos-1.2B",
         output_dir="/path/to/attention_result",
@@ -40,6 +40,33 @@ from typing import Optional, Union
 
 import pandas as pd
 from loguru import logger
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 内部工具
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _genos_scripts_dir() -> Path:
+    """
+    返回 scripts/genos/ 目录（包内自带的 Genos 工具脚本）。
+    """
+    import seekrare
+    pkg_root = Path(seekrare.__file__).parent.parent
+    return pkg_root / "scripts" / "genos"
+
+
+def _script_path(name: str) -> str:
+    """
+    返回脚本的绝对路径。
+    优先用包内脚本；必要时可扩展为支持部署机独立路径。
+    """
+    scripts_dir = _genos_scripts_dir()
+    p = scripts_dir / name
+    if p.exists():
+        return str(p)
+    raise FileNotFoundError(
+        f"Cannot find Genos script '{name}' in {scripts_dir}"
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -66,7 +93,6 @@ def step1_build_variant_ref(
     -------
     str: 输出 CSV 路径
     """
-    # 写临时 sites CSV（无表头：chrom,pos,REF,ALT）
     sites_csv = Path(output_csv).parent / "sites_input.csv"
     with open(sites_csv, "w", newline="") as f:
         for chrom, pos, ref, alt in sites:
@@ -109,7 +135,7 @@ def step2_export_attention(
     Parameters
     ----------
     input_csv : step1 输出的 variant_ref_input.csv
-    model_path : Genos 模型路径（如 /path/to/Genos-1.2B）
+    model_path : Genos 模型路径
     output_dir : attention 结果输出目录
     seq_chunk_size : 序列分块大小
     seq_overlap : 块重叠长度
@@ -147,7 +173,10 @@ def step2_export_attention(
 # Step 3: plot log2FC
 # ─────────────────────────────────────────────────────────────────────────────
 
-def step3_plot_logfc(input_dir: str, max_variants: Optional[int] = None) -> str:
+def step3_plot_logfc(
+    input_dir: str,
+    max_variants: Optional[int] = None,
+) -> str:
     """
     Step 3: 绘制 variant vs reference log2FC 图。
 
@@ -201,7 +230,7 @@ def step4_check_peak(
     window : 检验窗口大小（bp）
     background_exclude : 背景排除窗口
     top_quantile : global peak 阈值分位数
-    fold_change :  富集倍数阈值
+    fold_change : 富集倍数阈值
     max_variants : 最大处理位数
 
     Returns
@@ -231,9 +260,8 @@ def step4_check_peak(
         raise RuntimeError(f"Step 4 failed:\n{result.stderr}")
 
     df = pd.read_csv(output_csv)
-    logger.info(f"  → {len(df)} variants validated")
-    n_reasonable = df["is_reasonable_truth"].sum() if "is_reasonable_truth" in df.columns else 0
-    logger.info(f"  → is_reasonable_truth: {n_reasonable}/{len(df)} passed")
+    n_reasonable = int(df["is_reasonable_truth"].sum()) if "is_reasonable_truth" in df.columns else 0
+    logger.info(f"  → {len(df)} variants validated, {n_reasonable}/{len(df)} passed")
 
     return df
 
@@ -265,11 +293,10 @@ def run_genos_analysis(
     Parameters
     ----------
     sites : list of (chrom, pos, ref, alt)
-        从 Stage 3 CSV 选取的位点，如 [(chrom, pos, ref, alt), ...]
     genome_fa : str
         参考基因组 FASTA（GRCh38）
     model_path : str
-        Genos 模型路径（部署机器上的路径）
+        Genos 模型路径（部署机器上的绝对路径）
     output_dir : str
         输出根目录
     flank, seq_chunk_size, seq_overlap, gpu
@@ -338,7 +365,10 @@ def run_genos_analysis(
     return result_df
 
 
-def read_sites_from_csv(csv_path: str, top_n: Optional[int] = None) -> list[tuple]:
+def read_sites_from_csv(
+    csv_path: str,
+    top_n: Optional[int] = None,
+) -> list[tuple]:
     """
     从 Stage 3 输出的 CSV 读取位点。
 
@@ -374,28 +404,45 @@ def read_sites_from_csv(csv_path: str, top_n: Optional[int] = None) -> list[tupl
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 内部工具
+# pipeline.py 调用的 wrapper（与旧接口兼容）
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _script_path(name: str) -> str:
-    """解析脚本路径（优先从部署路径，fallback 到包内路径）。"""
-    deploy_paths = [
-        "/mnt/zzbnew/peixunban/changan/hanjianbing",
-        "/opt/genos/scripts",
-        "/home/genos/scripts",
-    ]
-    for base in deploy_paths:
-        p = Path(base) / name
-        if p.exists():
-            return str(p)
+def stage4_genos_analysis(
+    stage3_csv: str,
+    genome_fa: str,
+    model_path: str,
+    output_dir: str,
+    top_n: int = 10,
+    gpu: int = 0,
+    flank: int = 2000,
+    seq_chunk_size: int = 4096,
+    seq_overlap: int = 1000,
+    window: int = 50,
+    background_exclude: int = 500,
+    top_quantile: float = 0.95,
+    fold_change: float = 2.0,
+) -> pd.DataFrame:
+    """
+    Stage 4 Genos wrapper（供 pipeline.py 调用）。
 
-    # Fallback: 包内 scripts 目录
-    import seekrare
-    pkg = Path(seekrare.__file__).parent.parent / "scripts" / name
-    if pkg.exists():
-        return str(pkg)
+    从 Stage 3 CSV 取 top-N 位点，运行 Genos 全套分析。
+    """
+    sites = read_sites_from_csv(stage3_csv, top_n=top_n)
+    if not sites:
+        raise ValueError(f"Stage 3 CSV 中未找到有效位点: {stage3_csv}")
 
-    raise FileNotFoundError(
-        f"Cannot find {name} in deployment paths: {deploy_paths}\n"
-        f"Please ensure Genos scripts are deployed at one of those paths."
+    return run_genos_analysis(
+        sites=sites,
+        genome_fa=genome_fa,
+        model_path=model_path,
+        output_dir=output_dir,
+        flank=flank,
+        seq_chunk_size=seq_chunk_size,
+        seq_overlap=seq_overlap,
+        gpu=gpu,
+        max_variants=None,
+        window=window,
+        background_exclude=background_exclude,
+        top_quantile=top_quantile,
+        fold_change=fold_change,
     )
