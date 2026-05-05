@@ -23,10 +23,10 @@ import pandas as pd
 from loguru import logger
 
 from seekrare.preprocess import (
-    vcf_to_gt_csv,
-    annotate_by_gtf,
-    merge_filter_clinvar,
-    run_dbsnp_filter,
+    stage1_vcf_to_gt_csv,
+    stage1_annotate_by_gtf,
+    stage1_merge_filter_clinvar,
+    stage1_dbsnp_filter,
     stage2_eqtl_annotation,
     stage4_genos_analysis,
 )
@@ -128,7 +128,7 @@ class SeekRarePipeline:
             dbSNP_filtered = wd / "proband.nocommon.vcf.gz"
             if not dbSNP_filtered.exists():
                 logger.info(f"Step 1: dbSNP common 过滤 → {dbSNP_filtered}")
-                result = run_dbsnp_filter(
+                result = stage1_dbsnp_filter(
                     input_vcf=str(proband_vcf),
                     dbsnp_vcf=str(cfg.dbSNP_vcf),
                     output_vcf=str(dbSNP_filtered),
@@ -143,7 +143,7 @@ class SeekRarePipeline:
         gt_csv = wd / "1_gt.csv"
         if not gt_csv.exists():
             logger.info(f"Step 2: VCF → GT CSV")
-            vcf_to_gt_csv(str(proband_vcf), str(gt_csv))
+            stage1_vcf_to_gt_csv(str(proband_vcf), str(gt_csv))
         df = pd.read_csv(gt_csv, dtype=str)
         logger.info(f"  {len(df)} variants")
 
@@ -152,7 +152,7 @@ class SeekRarePipeline:
             gtf_csv = wd / "2_gtf_annotated.csv"
             if not gtf_csv.exists():
                 logger.info(f"Step 3: GTF annotation")
-                annotate_by_gtf(str(gt_csv), str(cfg.gtf_file), str(gtf_csv))
+                stage1_annotate_by_gtf(str(gt_csv), str(cfg.gtf_file), str(gtf_csv))
             df = pd.read_csv(str(gtf_csv), dtype=str)
 
         # ClinVar annotation
@@ -160,7 +160,7 @@ class SeekRarePipeline:
             clinvar_csv = wd / "3_clinvar_annotated.csv"
             if not clinvar_csv.exists():
                 logger.info(f"Step 4: ClinVar annotation")
-                merge_filter_clinvar(str(gtf_csv), str(cfg.clinvar_vcf), str(clinvar_csv))
+                stage1_merge_filter_clinvar(str(gtf_csv), str(cfg.clinvar_vcf), str(clinvar_csv))
             df = pd.read_csv(str(clinvar_csv), dtype=str)
 
         self._stage1_df = df

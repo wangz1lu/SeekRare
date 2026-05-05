@@ -46,7 +46,7 @@ def count_vcf_variants(vcf_path: str) -> int:
     return count
 
 
-def run_dbsnp_filter(
+def stage1_dbsnp_filter(
     input_vcf: Union[str, Path],
     dbsnp_vcf: Union[str, Path],
     output_vcf: Union[str, Path],

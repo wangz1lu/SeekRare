@@ -9,8 +9,8 @@ Uses a sweep-line algorithm to annotate each variant with:
 Usage:
     python -m seekrare.preprocess.gene_annotation input.csv genomic.gtf output.csv
     # or programmatically:
-    from seekrare.preprocess import annotate_by_gtf
-    df = annotate_by_gtf("input.csv", "genomic.gtf", "output.csv")
+    from seekrare.preprocess import stage1_annotate_by_gtf
+    df = stage1_annotate_by_gtf("input.csv", "genomic.gtf", "output.csv")
 """
 
 from __future__ import annotations
@@ -148,7 +148,7 @@ def load_gtf(gtf_path: str) -> dict[str, list[dict]]:
     return dict(gtf_by_chrom)
 
 
-def annotate_by_gtf(
+def stage1_annotate_by_gtf(
     input_csv: Union[str, Path],
     gtf_file: Union[str, Path],
     output_csv: Union[str, Path],
@@ -268,4 +268,4 @@ if __name__ == "__main__":
     if len(sys.argv) != 4:
         print(__doc__)
         sys.exit(1)
-    annotate_by_gtf(sys.argv[1], sys.argv[2], sys.argv[3])
+    stage1_annotate_by_gtf(sys.argv[1], sys.argv[2], sys.argv[3])

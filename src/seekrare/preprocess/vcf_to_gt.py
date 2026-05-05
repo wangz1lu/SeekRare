@@ -7,8 +7,8 @@ Supports .vcf and .vcf.gz.
 Usage:
     python -m seekrare.preprocess.vcf_to_gt input.vcf output.csv
     # or programmatically:
-    from seekrare.preprocess import vcf_to_gt_csv
-    vcf_to_gt_csv("input.vcf", "output.csv")
+    from seekrare.preprocess import stage1_vcf_to_gt_csv
+    stage1_vcf_to_gt_csv("input.vcf", "output.csv")
 """
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ def extract_gt(sample_value: str, format_fields: list[str]) -> str:
     return values[gt_idx]
 
 
-def vcf_to_gt_csv(
+def stage1_vcf_to_gt_csv(
     vcf_path: Union[str, Path],
     output_csv: Union[str, Path],
     sample_names: list[str] | None = None,
@@ -133,4 +133,4 @@ if __name__ == "__main__":
         print(__doc__)
         sys.exit(1)
 
-    vcf_to_gt_csv(sys.argv[1], sys.argv[2])
+    stage1_vcf_to_gt_csv(sys.argv[1], sys.argv[2])

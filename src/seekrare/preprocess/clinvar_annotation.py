@@ -56,7 +56,7 @@ def _build_cpra(df: pd.DataFrame) -> pd.Series:
     )
 
 
-def merge_filter_clinvar(
+def stage1_merge_filter_clinvar(
     input_csv: Union[str, Path],
     clinvar_csv: Union[str, Path],
     output_csv: Union[str, Path],
