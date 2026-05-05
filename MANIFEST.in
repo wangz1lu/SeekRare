@@ -1,0 +1,7 @@
+include README.md
+include LICENSE
+include pyproject.toml
+
+recursive-include src/seekrare/scripts/genos *.py
+recursive-include scripts *.py *.sh
+recursive-include tests *.py

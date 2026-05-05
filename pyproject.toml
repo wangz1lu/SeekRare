@@ -4,15 +4,27 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "seekrare"
-version = "0.1.0"
-description = "LLM-powered rare disease diagnosis system with dual-dynamic variant scoring"
+version = "0.2.0"
+description = "Rare disease candidate variant diagnosis system — three-stage VCF-to-ranking with optional Genos model and AlphaFold3 structure prediction"
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
-    {name = "Wang Zelong", email = "wangz1lu@seekrare.dev"}
+    {name = "Wang Zelong", email = "wangz1lu@seekrare.dev"},
+    {name = "Wang Zilu", email = "wangzilu@seekrare.dev"},
 ]
 requires-python = ">=3.10"
-keywords = ["rare-disease", "genomics", "variant-analysis", "llm", "clinical-genetics"]
+keywords = [
+    "rare-disease",
+    "genomics",
+    "variant-analysis",
+    "llm",
+    "clinical-genetics",
+    "wgs",
+    "vcf",
+    "gtex",
+    "alphafold",
+    "genos",
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
@@ -21,9 +33,9 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
 ]
 dependencies = [
-    "pysam>=0.21",
     "pandas>=2.0",
     "numpy>=1.24",
     "pyarrow>=14.0",
@@ -32,7 +44,6 @@ dependencies = [
     "anthropic>=0.18",
     "tqdm>=4.66",
     "loguru>=0.7",
-    "biopython>=1.83",
     "requests>=2.31",
 ]
 
@@ -47,7 +58,12 @@ hpo = [
     "pyhpo>=3.0",
 ]
 alphafold = [
-    "requests>=2.31",
+    "alphafold3",
+]
+genomodel = [
+    "torch>=2.0",
+    "transformers>=4.30",
+    "pygromaix>=0.1",
 ]
 
 [project.urls]
@@ -60,6 +76,11 @@ PyPI = "https://pypi.org/project/seekrare/"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+seekrare = [
+    "scripts/genos/*.py",
+]
+
 [tool.black]
 line-length = 88
 target-version = ["py310"]
@@ -67,3 +88,8 @@ target-version = ["py310"]
 [tool.ruff]
 line-length = 88
 select = ["E", "F", "W", "I", "N", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
