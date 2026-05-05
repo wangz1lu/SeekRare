@@ -102,7 +102,7 @@ def parse_variant_id(chrom: str, pos: str, ref: str, alt: str, suffix: str) -> s
     return f"chr{chrom}_{pos}_{ref.upper()}_{alt.upper()}{suffix}"
 
 
-def run_eqtl_annotation(
+def stage2_eqtl_annotation(
     stage1_csv: str,
     tissue_dir: str,
     selected_tissues: list[str],
