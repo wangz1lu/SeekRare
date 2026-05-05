@@ -81,9 +81,16 @@ print(top[["CHROM","POS","REF","ALT","gene_name","final_score"]].head(10))
 ### 方式一: pip 从源码安装（推荐）
 
 ```bash
-git clone https://github.com/wangz1lu/SeekRare.git
+# 克隆 GitHub 仓库（develop 分支）
+git clone -b develop https://github.com/wangz1lu/SeekRare.git
 cd SeekRare
-git checkout develop
+
+# 创建 Python 3.10+ 虚拟环境（推荐）
+python3 -m venv .venv
+source .venv/bin/activate        # Linux / macOS
+# .venv\Scripts\activate         # Windows
+
+# 安装（开发模式，editable）
 pip install -e .
 ```
 
