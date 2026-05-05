@@ -1,6 +1,6 @@
 # SeekRare
 
-**罕见病候选变异三阶段诊断系统** — GPU 加速的空间转录组 & LLM 驱动评分。
+**罕见病候选变异诊断系统**
 
 ```
 VCF (proband + father + mother)
