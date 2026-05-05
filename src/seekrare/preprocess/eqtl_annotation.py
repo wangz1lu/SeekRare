@@ -188,7 +188,7 @@ def stage2_eqtl_annotation(
                 temperature=llm_temperature,
                 max_tokens=2048,
             )
-            raw_text = resp.choices[0].message.content.strip
+            raw_text = resp.choices[0].message.content.strip()
         elif llm_provider == "anthropic":
             import anthropic
             client_kwargs = {"api_key": api_key}
@@ -200,7 +200,7 @@ def stage2_eqtl_annotation(
                 max_tokens=2048,
                 messages=[{"role": "user", "content": prompt}],
             )
-            raw_text = resp.content[0].text.strip
+            raw_text = resp.content[0].text.strip()
         else:
             raise ValueError(f"Unsupported llm_provider: {llm_provider} (supported: openai, anthropic)")
         import json, re
