@@ -221,13 +221,21 @@ Stage 1 CSV
 ```python
 from seekrare.preprocess import stage2_eqtl_annotation
 
+# 方式A — 手动指定组织（直接传入）
+stage2_eqtl_annotation(
+    stage1_csv="seekrare_output/3_clinvar_annotated.csv",
+    tissue_dir="/path/to/GTEx_Analysis_v11_eQTL_parquet/",
+    selected_tissues=["Brain_Cortex", "Eye_Retina", "Whole_Blood"],
+)
+
+# 方式B — LLM 自动选组织（根据症状自动筛选）
 stage2_eqtl_annotation(
     stage1_csv="seekrare_output/3_clinvar_annotated.csv",
     tissue_dir="/path/to/GTEx_Analysis_v11_eQTL_parquet/",
     symptoms="眼部病变，视网膜色素变性",
     llm_provider="openai",
     llm_model="deepseek-v4-flash",
-    api_key="sk-xxxxxxxx",
+    api_key="sk-xxxxxxxx",           # 替换为你的 key
     base_url="https://api.deepseek.com",
 )
 ```
