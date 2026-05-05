@@ -78,11 +78,23 @@ print(top[["CHROM","POS","REF","ALT","gene_name","final_score"]].head(10))
 
 ## 安装
 
-### 方式一: pip 从源码安装（推荐）
+### 方式一: pip 直接安装（推荐）
 
 ```bash
-# 克隆 GitHub 仓库（develop 分支）
-git clone -b develop https://github.com/wangz1lu/SeekRare.git
+pip install seekrare
+
+# 可选：Stage 4 Genos 模型支持
+pip install seekrare[genomodel]
+
+# 可选：AlphaFold3 结构预测
+pip install seekrare[alphafold]
+```
+
+### 方式二: 从源码安装（开发模式）
+
+```bash
+# 克隆 GitHub 仓库
+git clone https://github.com/wangz1lu/SeekRare.git
 cd SeekRare
 
 # 创建 Python 3.10+ 虚拟环境（推荐）
@@ -92,12 +104,10 @@ source .venv/bin/activate        # Linux / macOS
 
 # 安装（开发模式，editable）
 pip install -e .
-```
 
-### 方式二: 直接 import
-
-```bash
-export PYTHONPATH="$PYTHONPATH:/path/to/SeekRare/src"
+# 可选分组
+pip install -e ".[genomodel]"    # Genos 模型支持
+pip install -e ".[alphafold]"    # AlphaFold3 支持
 ```
 
 ### 文件下载
