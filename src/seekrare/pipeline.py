@@ -374,3 +374,135 @@ class SeekRarePipeline:
             self.stage4_genos_analysis(top_n=10)
 
         return result
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Standalone Stage 3 function
+# ─────────────────────────────────────────────────────────────────────────────
+
+def stage3_score_and_rank(
+    csv_path: str,
+    symptoms: str,
+    llm_provider: str = "openai",
+    llm_model: str = "deepseek-v4-flash",
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
+    **kwargs,
+) -> pd.DataFrame:
+    """
+    Stage 3: LLM 双重动态评分排序（独立函数）。
+
+    Parameters
+    ----------
+    csv_path : str
+        输入 CSV 路径（Stage 1 或 Stage 2 输出）
+    symptoms : str
+        患者症状描述
+    llm_provider : str
+    llm_model : str
+    api_key : str
+    base_url : str
+    **kwargs : 其他参数传递给 Stage3Scorer
+
+    Returns
+    -------
+    pd.DataFrame: 排序后的 candidates
+    """
+    from seekrare.scoring import Stage3Scorer
+
+    scorer = Stage3Scorer(
+        csv_path=csv_path,
+        symptoms=symptoms,
+        llm_provider=llm_provider,
+        llm_model=llm_model,
+        api_key=api_key,
+        base_url=base_url,
+        **kwargs,
+    )
+    return scorer.run()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Standalone Stage 4 functions
+# ─────────────────────────────────────────────────────────────────────────────
+
+def stage4_genos_analysis(
+    sites: Union[str, list],
+    stage3_csv: Optional[str] = None,
+    genome_fa: Optional[str] = None,
+    model_path: Optional[str] = None,
+    output_dir: str = "seekrare_output/genos_result",
+    **kwargs,
+) -> pd.DataFrame:
+    """
+    Stage 4A: Genos 模型分析（独立函数）。
+
+    Parameters
+    ----------
+    sites : str or list[tuple]
+        位点选择："top:N" / "rows:R1,R2-R3" / [(chrom,pos,REF,ALT), ...]
+    stage3_csv : str, optional
+        Stage 3 CSV（top/rows 模式需要）
+    genome_fa : str
+        参考基因组 FASTA
+    model_path : str
+        Genos 模型路径
+    output_dir : str
+        输出目录
+    **kwargs : 其他参数
+
+    Returns
+    -------
+    pd.DataFrame: peak 验证结果
+    """
+    from seekrare.preprocess.stage4_genos import run_genos_analysis
+
+    return run_genos_analysis(
+        sites=sites,
+        stage3_csv=stage3_csv,
+        genome_fa=genome_fa,
+        model_path=model_path,
+        output_dir=output_dir,
+        **kwargs,
+    )
+
+
+def stage4_alphafold_prediction(
+    csv_path: str,
+    ref_fasta: str,
+    gtf_file: str,
+    output_dir: str = "seekrare_output/alphafold_results",
+    top_n: int = 10,
+    **kwargs,
+) -> pd.DataFrame:
+    """
+    Stage 4B: AlphaFold3 蛋白结构预测（独立函数）。
+
+    Parameters
+    ----------
+    csv_path : str
+        Stage 3 CSV 路径
+    ref_fasta : str
+        参考基因组 FASTA
+    gtf_file : str
+        GTF 注释文件
+    output_dir : str
+        输出目录
+    top_n : int
+        取前 N 个位点
+    **kwargs : 其他参数
+
+    Returns
+    -------
+    pd.DataFrame: AlphaFold 预测结果汇总
+    """
+    from seekrare.preprocess.stage4_alphafold import run_alphafold_prediction
+
+    return run_alphafold_prediction(
+        stage3_csv=csv_path,
+        ref_fasta=ref_fasta,
+        gtf_file=gtf_file,
+        output_dir=output_dir,
+        top_n=top_n,
+        **kwargs,
+    )
