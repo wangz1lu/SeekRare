@@ -21,9 +21,28 @@ Pipeline（4步）:
     输出: is_reasonable_truth (是否在正确位置有富集)
 
 Usage:
+    # 方式A: 取 Stage 3 排序前 N 个位点
     from seekrare.preprocess.stage4_genos import run_genos_analysis
     result = run_genos_analysis(
-        sites=[("chr1", 123456, "A", "G"), ...],
+        sites="top:10",                    # 取前10
+        stage3_csv="stage3_ranked.csv",
+        genome_fa="/path/to/GRCh38.fa",
+        model_path="/path/to/Genos-1.2B",
+        output_dir="/path/to/attention_result",
+    )
+
+    # 方式B: 直接指定位点列表
+    result = run_genos_analysis(
+        sites=[("chr1", 123456, "A", "G"), ("chr2", 789012, "CG", "T")],
+        genome_fa="/path/to/GRCh38.fa",
+        model_path="/path/to/Genos-1.2B",
+        output_dir="/path/to/attention_result",
+    )
+
+    # 方式C: 指定 Stage 3 CSV 中的行号（1-based，可多选）
+    result = run_genos_analysis(
+        sites="rows:1,3,5-8",               # 第1、3、5到8行
+        stage3_csv="stage3_ranked.csv",
         genome_fa="/path/to/GRCh38.fa",
         model_path="/path/to/Genos-1.2B",
         output_dir="/path/to/attention_result",
@@ -47,19 +66,14 @@ from loguru import logger
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _genos_scripts_dir() -> Path:
-    """
-    返回 scripts/genos/ 目录（包内自带的 Genos 工具脚本）。
-    """
+    """返回 scripts/genos/ 目录（包内自带的 Genos 工具脚本）。"""
     import seekrare
     pkg_root = Path(seekrare.__file__).parent.parent
     return pkg_root / "scripts" / "genos"
 
 
 def _script_path(name: str) -> str:
-    """
-    返回脚本的绝对路径。
-    优先用包内脚本；必要时可扩展为支持部署机独立路径。
-    """
+    """返回脚本的绝对路径（优先包内）。"""
     scripts_dir = _genos_scripts_dir()
     p = scripts_dir / name
     if p.exists():
@@ -67,6 +81,100 @@ def _script_path(name: str) -> str:
     raise FileNotFoundError(
         f"Cannot find Genos script '{name}' in {scripts_dir}"
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Sites 解析（支持三种输入模式）
+# ─────────────────────────────────────────────────────────────────────────────
+
+def parse_sites(
+    sites_arg: Union[str, list[tuple], None],
+    stage3_csv: Optional[str] = None,
+) -> list[tuple]:
+    """
+    解析 sites 参数，支持三种输入模式：
+
+    Parameters
+    ----------
+    sites_arg : str, list[tuple], or None
+        - "top:N"          → 从 stage3_csv 取前 N 行
+        - "rows:R1,R2-R3"  → 从 stage3_csv 取指定行（1-based）
+        - [(chrom, pos, ref, alt), ...] → 直接使用
+        - None             → stage3_csv 必须提供，取全部
+    stage3_csv : str, optional
+        Stage 3 输出的 CSV 路径（top/rows 模式需要）
+
+    Returns
+    -------
+    list of (chrom, pos, ref, alt)
+    """
+    # 模式B: list[tuple] 直接透传
+    if isinstance(sites_arg, (list, tuple)) and len(sites_arg) > 0:
+        first = sites_arg[0]
+        if isinstance(first, (list, tuple)) and len(first) >= 4:
+            validated = []
+            for item in sites_arg:
+                chrom, pos, ref, alt = item[0], int(item[1]), str(item[2]).upper(), str(item[3]).upper()
+                validated.append((chrom, pos, ref, alt))
+            logger.info(f"直接位点列表: {len(validated)} 个")
+            return validated
+        # 单个 tuple
+        chrom, pos, ref, alt = str(sites_arg[0]), int(sites_arg[1]), str(sites_arg[2]).upper(), str(sites_arg[3]).upper()
+        return [(chrom, pos, ref, alt)]
+
+    # 模式A/C 需要 stage3_csv
+    if stage3_csv is None:
+        raise ValueError("stage3_csv 必须提供（当 sites 为 top/rows 模式时）")
+    if not Path(stage3_csv).exists():
+        raise FileNotFoundError(f"stage3_csv not found: {stage3_csv}")
+
+    df = pd.read_csv(stage3_csv)
+
+    # 模式A: top:N
+    if isinstance(sites_arg, str) and sites_arg.startswith("top:"):
+        n = int(sites_arg[4:])
+        df = df.head(n)
+        logger.info(f"Top-{n} 模式: 从 {stage3_csv} 取前 {n} 行")
+        return _df_to_sites(df)
+
+    # 模式C: rows:R1,R2-R3
+    if isinstance(sites_arg, str) and sites_arg.startswith("rows:"):
+        row_spec = sites_arg[5:]
+        selected_indices: set[int] = set()
+        for part in row_spec.split(","):
+            part = part.strip()
+            if not part:
+                continue
+            if "-" in part:
+                start, end = part.split("-", 1)
+                selected_indices.update(range(int(start) - 1, int(end)))
+            else:
+                selected_indices.add(int(part) - 1)
+
+        df = df.iloc[list(selected_indices)]
+        logger.info(f"Rows 模式: 从 {stage3_csv} 取 {len(df)} 行（{sites_arg}）")
+        return _df_to_sites(df)
+
+    # sites_arg 为 None 或非特定格式 → 取全部
+    if sites_arg is None:
+        logger.info(f"全量模式: 取 {stage3_csv} 全部 {len(df)} 行")
+    return _df_to_sites(df)
+
+
+def _df_to_sites(df: pd.DataFrame) -> list[tuple]:
+    """DataFrame → list of (chrom, pos, ref, alt)"""
+    sites = []
+    for _, row in df.iterrows():
+        try:
+            chrom = str(row.get("CHROM", row.get("chrom", ""))).strip()
+            pos = int(float(row.get("POS", row.get("pos", 0))))
+            ref = str(row.get("REF", row.get("ref", ""))).strip().upper()
+            alt = str(row.get("ALT", row.get("alt", ""))).strip().upper()
+            if chrom and pos and ref and alt:
+                sites.append((chrom, pos, ref, alt))
+        except Exception:
+            continue
+    return sites
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -226,7 +334,7 @@ def step4_check_peak(
     Parameters
     ----------
     input_dir : step2 输出目录
-    output_csv : 总结果 CSV 路径（默认 input_dir/truth_peak_validation_all_summary.csv）
+    output_csv : 总结果 CSV 路径
     window : 检验窗口大小（bp）
     background_exclude : 背景排除窗口
     top_quantile : global peak 阈值分位数
@@ -271,10 +379,11 @@ def step4_check_peak(
 # ─────────────────────────────────────────────────────────────────────────────
 
 def run_genos_analysis(
-    sites: list[tuple],
-    genome_fa: str,
-    model_path: str,
-    output_dir: str,
+    sites: Union[str, list[tuple]],
+    stage3_csv: Optional[str] = None,
+    genome_fa: Optional[str] = None,
+    model_path: Optional[str] = None,
+    output_dir: Optional[str] = None,
     flank: int = 2000,
     seq_chunk_size: int = 4096,
     seq_overlap: int = 1000,
@@ -288,17 +397,21 @@ def run_genos_analysis(
     """
     Stage 4: Genos 全套分析（一键）。
 
-    从 Stage 3 排序结果中选取感兴趣的位点，运行完整 Genos pipeline。
-
     Parameters
     ----------
-    sites : list of (chrom, pos, ref, alt)
-    genome_fa : str
+    sites : str or list[tuple]
+        取位点的方式：
+        - "top:N"          → 取 Stage 3 CSV 前 N 行
+        - "rows:R1,R2-R3"  → 取 Stage 3 CSV 指定行（1-based）
+        - [(chrom,pos,REF,ALT), ...] → 直接指定位点列表
+    stage3_csv : str, optional
+        Stage 3 排序 CSV（top/rows 模式需要）
+    genome_fa : str, optional
         参考基因组 FASTA（GRCh38）
-    model_path : str
+    model_path : str, optional
         Genos 模型路径（部署机器上的绝对路径）
-    output_dir : str
-        输出根目录
+    output_dir : str, optional
+        输出根目录（默认 work_dir/genos_result）
     flank, seq_chunk_size, seq_overlap, gpu
         各 step 参数
     max_variants : int, optional
@@ -311,32 +424,39 @@ def run_genos_analysis(
     pd.DataFrame
         Step 4 汇总结果（含 is_reasonable_truth）
     """
-    output_dir = Path(output_dir)
+    # 解析 sites
+    parsed_sites = parse_sites(sites, stage3_csv)
+    if not parsed_sites:
+        raise ValueError(f"未找到有效位点: sites={sites}, stage3_csv={stage3_csv}")
+
+    genome_fa = genome_fa or ""
+    model_path = model_path or ""
+    output_dir = Path(output_dir) if output_dir else Path("seekrare_output/genos_result")
     output_dir.mkdir(parents=True, exist_ok=True)
 
     logger.info("=" * 60)
     logger.info("Stage 4: Genos Analysis")
     logger.info("=" * 60)
-    logger.info(f"  Sites: {len(sites)}")
+    logger.info(f"  Sites: {len(parsed_sites)}")
     logger.info(f"  Genome: {genome_fa}")
     logger.info(f"  Model: {model_path}")
     logger.info(f"  Output: {output_dir}")
 
     # Step 1
-    variant_ref_csv = output_dir / "variant_ref_input.csv"
+    variant_ref_csv = str(output_dir / "variant_ref_input.csv")
     step1_build_variant_ref(
-        sites=sites,
+        sites=parsed_sites,
         genome_fa=genome_fa,
-        output_csv=str(variant_ref_csv),
+        output_csv=variant_ref_csv,
         flank=flank,
     )
 
     # Step 2
-    attention_dir = output_dir / "attention_result"
+    attention_dir = str(output_dir / "attention_result")
     step2_export_attention(
-        input_csv=str(variant_ref_csv),
+        input_csv=variant_ref_csv,
         model_path=model_path,
-        output_dir=str(attention_dir),
+        output_dir=attention_dir,
         seq_chunk_size=seq_chunk_size,
         seq_overlap=seq_overlap,
         gpu=gpu,
@@ -345,15 +465,15 @@ def run_genos_analysis(
 
     # Step 3
     step3_plot_logfc(
-        input_dir=str(attention_dir),
+        input_dir=attention_dir,
         max_variants=max_variants,
     )
 
     # Step 4
-    summary_csv = output_dir / "truth_peak_validation_all_summary.csv"
+    summary_csv = str(output_dir / "truth_peak_validation_all_summary.csv")
     result_df = step4_check_peak(
-        input_dir=str(attention_dir),
-        output_csv=str(summary_csv),
+        input_dir=attention_dir,
+        output_csv=summary_csv,
         window=window,
         background_exclude=background_exclude,
         top_quantile=top_quantile,
@@ -365,84 +485,26 @@ def run_genos_analysis(
     return result_df
 
 
-def read_sites_from_csv(
-    csv_path: str,
-    top_n: Optional[int] = None,
-) -> list[tuple]:
-    """
-    从 Stage 3 输出的 CSV 读取位点。
-
-    Parameters
-    ----------
-    csv_path : str
-        Stage 3 排序后的 CSV 路径
-    top_n : int, optional
-        只取前 N 行
-
-    Returns
-    -------
-    list of (chrom, pos, ref, alt)
-    """
-    df = pd.read_csv(csv_path)
-    if top_n:
-        df = df.head(top_n)
-
-    sites = []
-    for _, row in df.iterrows():
-        try:
-            chrom = str(row.get("CHROM", row.get("chrom", ""))).strip()
-            pos = int(float(row.get("POS", row.get("pos", 0))))
-            ref = str(row.get("REF", row.get("ref", ""))).strip()
-            alt = str(row.get("ALT", row.get("alt", ""))).strip()
-            if chrom and pos and ref and alt:
-                sites.append((chrom, pos, ref, alt))
-        except Exception:
-            continue
-
-    logger.info(f"从 {csv_path} 读取 {len(sites)} 个位点")
-    return sites
-
-
 # ─────────────────────────────────────────────────────────────────────────────
-# pipeline.py 调用的 wrapper（与旧接口兼容）
+# pipeline.py 调用的 wrapper
 # ─────────────────────────────────────────────────────────────────────────────
 
 def stage4_genos_analysis(
+    sites: Union[str, list[tuple]],
     stage3_csv: str,
     genome_fa: str,
     model_path: str,
     output_dir: str,
-    top_n: int = 10,
-    gpu: int = 0,
-    flank: int = 2000,
-    seq_chunk_size: int = 4096,
-    seq_overlap: int = 1000,
-    window: int = 50,
-    background_exclude: int = 500,
-    top_quantile: float = 0.95,
-    fold_change: float = 2.0,
+    **kwargs,
 ) -> pd.DataFrame:
     """
     Stage 4 Genos wrapper（供 pipeline.py 调用）。
-
-    从 Stage 3 CSV 取 top-N 位点，运行 Genos 全套分析。
     """
-    sites = read_sites_from_csv(stage3_csv, top_n=top_n)
-    if not sites:
-        raise ValueError(f"Stage 3 CSV 中未找到有效位点: {stage3_csv}")
-
     return run_genos_analysis(
         sites=sites,
+        stage3_csv=stage3_csv,
         genome_fa=genome_fa,
         model_path=model_path,
         output_dir=output_dir,
-        flank=flank,
-        seq_chunk_size=seq_chunk_size,
-        seq_overlap=seq_overlap,
-        gpu=gpu,
-        max_variants=None,
-        window=window,
-        background_exclude=background_exclude,
-        top_quantile=top_quantile,
-        fold_change=fold_change,
+        **kwargs,
     )
