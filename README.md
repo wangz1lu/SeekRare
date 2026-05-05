@@ -14,7 +14,7 @@ VCF (proband + father + mother)
   │         Stage 2 (可选)                  │
   │  GTEx eQTL 高级注释（LLM组织选择）        │
   └──────┬─────────────────────────────────┘
-         │  4_eqtl_annotated.csv
+         │  4_eqtl_annotated.csv（若未配置 tissue_dir 则跳过）
   ┌──────┴─────────────────────────────────┐
   │         Stage 3 (必须)                  │
   │  LLM 双重动态评分 → 排序 Top-K           │
@@ -47,31 +47,63 @@ VCF (proband + father + mother)
 ## 快速开始
 
 ```bash
-# 安装（源码）
-git clone https://github.com/wangz1lu/SeekRare.git
-cd SeekRare
-git checkout develop
-pip install -e .
+# pip 安装
+pip install seekrare
 
-# 三阶段完整流程
-from seekrare import SeekRarePipeline
+# Stage 1/2/3/4 均可独立调用
+```
 
-p = SeekRarePipeline(
+```python
+from seekrare import SeekRarePipeline, stage3_score_and_rank
+from seekrare.preprocess import (
+    stage1_vcf_to_gt_csv,
+    stage1_annotate_by_gtf,
+    stage1_merge_filter_clinvar,
+    stage2_eqtl_annotation,
+    stage4_genos_analysis,
+    stage4_alphafold_prediction,
+)
+
+# ── Stage 1 ──────────────────────────────────────────────
+pipeline = SeekRarePipeline(
     vcf_proband="child.vcf.gz",
     vcf_father="father.vcf.gz",
     vcf_mother="mother.vcf.gz",
     ref_fasta="/path/to/GRCh38.fa",
     gtf_file="/path/to/genomic.gtf",
     clinvar_vcf="/path/to/clinvar.vcf.gz",
-    dbSNP_vcf="/path_to_dbsnp.vcf.gz",
+    dbSNP_vcf="/path/to/dbsnp.vcf.gz",
     work_dir="seekrare_output",
 )
+pipeline.stage1_preprocess()
 
-# Stage 1 → Stage 3
-p.stage1_preprocess()
-top = p.stage3_score_and_rank(symptoms="眼部病变，视网膜色素变性")
-
+# ── Stage 3 ──────────────────────────────────────────────
+top = stage3_score_and_rank(
+    csv_path="seekrare_output/3_clinvar_annotated.csv",
+    symptoms="眼部病变，视网膜色素变性",
+    llm_model="deepseek-v4-flash",
+    api_key="sk-xxxxxxxx",
+    base_url="https://api.deepseek.com",
+)
 print(top[["CHROM","POS","REF","ALT","gene_name","final_score"]].head(10))
+
+# ── Stage 4A Genos ───────────────────────────────────────
+stage4_genos_analysis(
+    sites="top:10",
+    stage3_csv="seekrare_output/stage3_ranked.csv",
+    genome_fa="/path/to/GRCh38.fa",
+    model_path="/path/to/Genos-1.2B",
+    output_dir="seekrare_output/genos_result",
+)
+
+# ── Stage 4B AlphaFold ──────────────────────────────────
+stage4_alphafold_prediction(
+    csv_path="seekrare_output/stage3_ranked.csv",
+    ref_fasta="/path/to/GRCh38.fa",
+    gtf_file="/path/to/genomic.gtf",
+    top_n=5,
+    output_dir="seekrare_output/alphafold_results",
+)
 ```
 
 ---
@@ -152,12 +184,17 @@ Stage 4 Genos 模型：
 
 **输出**: `seekrare_output/3_clinvar_annotated.csv`
 
-**关键配置**:
+**用法**:
 ```python
+from seekrare import SeekRarePipeline
+
 p = SeekRarePipeline(
     vcf_proband="child.vcf.gz",
     vcf_father="father.vcf.gz",
     vcf_mother="mother.vcf.gz",
+    ref_fasta="/path/to/GRCh38.fa",
+    gtf_file="/path/to/genomic.gtf",
+    clinvar_vcf="/path/to/clinvar.vcf.gz",
     dbSNP_vcf="/path/to/dbsnp.vcf.gz",   # 可选，有则过滤 common variants
 )
 p.stage1_preprocess()
@@ -182,9 +219,14 @@ Stage 1 CSV
 
 **用法**:
 ```python
-p.stage2_eqtl_annotation(
-    symptoms="眼部病变，视网膜色素变性",
+from seekrare.preprocess import stage2_eqtl_annotation
+
+stage2_eqtl_annotation(
+    stage1_csv="seekrare_output/3_clinvar_annotated.csv",
     tissue_dir="/path/to/GTEx_Analysis_v11_eQTL_parquet/",
+    symptoms="眼部病变，视网膜色素变性",
+    llm_model="deepseek-v4-flash",
+    api_key="sk-xxxxxxxx",
 )
 ```
 
@@ -227,9 +269,12 @@ p.stage2_eqtl_annotation(
 
 **用法**:
 ```python
-top = p.stage3_score_and_rank(
+from seekrare import stage3_score_and_rank
+
+top = stage3_score_and_rank(
+    csv_path="seekrare_output/3_clinvar_annotated.csv",  # 或 Stage 2 输出
     symptoms="眼部病变，视网膜色素变性",
-    llm_model="deepseek-v4-flash",  # 或 "deepseek-v4-pro"
+    llm_model="deepseek-v4-flash",
     api_key="sk-xxxxxxxx",
     base_url="https://api.deepseek.com",
 )
@@ -246,10 +291,10 @@ print(top.head(10))
 
 **位点选择方式**:
 ```python
-from seekrare.preprocess.stage4_genos import run_genos_analysis
+from seekrare import stage4_genos_analysis
 
 # 方式A: 取 Stage 3 排序前 N 个
-run_genos_analysis(
+stage4_genos_analysis(
     sites="top:10",
     stage3_csv="seekrare_output/stage3_ranked.csv",
     genome_fa="/path/to/GRCh38.fa",
@@ -258,7 +303,7 @@ run_genos_analysis(
 )
 
 # 方式B: 直接指定位点列表
-run_genos_analysis(
+stage4_genos_analysis(
     sites=[("chr1", 123456, "A", "G"), ("chr2", 789012, "CG", "T")],
     genome_fa="/path/to/GRCh38.fa",
     model_path="/path/to/Genos-1.2B",
@@ -266,7 +311,7 @@ run_genos_analysis(
 )
 
 # 方式C: 指定 Stage 3 CSV 行号（1-based，支持范围）
-run_genos_analysis(
+stage4_genos_analysis(
     sites="rows:1,3,5-8",
     stage3_csv="seekrare_output/stage3_ranked.csv",
     genome_fa="/path/to/GRCh38.fa",
@@ -307,10 +352,10 @@ Step 4: 4_check_truth_peak.py
 
 **用法**:
 ```python
-from seekrare.preprocess.stage4_alphafold import run_alphafold_prediction
+from seekrare import stage4_alphafold_prediction
 
-results = run_alphafold_prediction(
-    stage3_csv="seekrare_output/stage3_ranked.csv",
+results = stage4_alphafold_prediction(
+    csv_path="seekrare_output/stage3_ranked.csv",
     ref_fasta="/path/to/GRCh38.fa",
     gtf_file="/path/to/genomic.gtf",
     top_n=5,
