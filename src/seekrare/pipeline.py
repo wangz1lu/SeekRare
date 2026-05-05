@@ -92,9 +92,62 @@ class SeekRarePipeline:
         p.stage4_genos_analysis(top_n=5)
     """
 
-    def __init__(self, config: Union[SeekRareConfig, dict]):
-        if isinstance(config, dict):
-            config = SeekRareConfig(**config)
+    def __init__(
+        self,
+        vcf_proband: Optional[str] = None,
+        vcf_father: Optional[str] = None,
+        vcf_mother: Optional[str] = None,
+        ref_fasta: Optional[str] = None,
+        gtf_file: Optional[str] = None,
+        clinvar_vcf: Optional[str] = None,
+        dbSNP_vcf: Optional[str] = None,
+        work_dir: str = "seekrare_output",
+        gtex_tissue_dir: Optional[str] = None,
+        llm_provider: str = "openai",
+        llm_model: str = "deepseek-v4-flash",
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        genome_fa: Optional[str] = None,
+        genos_model_path: Optional[str] = None,
+        **kwargs,
+    ):
+        """
+        支持两种调用方式：
+
+        方式A — 关键字参数（推荐）:
+            SeekRarePipeline(vcf_proband="child.vcf.gz", ref_fasta="/ref/GRCh38.fa", ...)
+
+        方式B — dataclass/config字典:
+            cfg = SeekRareConfig(vcf_proband="child.vcf.gz", ...)
+            SeekRarePipeline(config=cfg)
+        """
+        # 如果 vcf_proband 不是 None，说明用的是方式A
+        if vcf_proband is not None:
+            config = SeekRareConfig(
+                vcf_proband=vcf_proband,
+                vcf_father=vcf_father,
+                vcf_mother=vcf_mother,
+                ref_fasta=ref_fasta,
+                gtf_file=gtf_file,
+                clinvar_vcf=clinvar_vcf,
+                dbSNP_vcf=dbSNP_vcf,
+                work_dir=work_dir,
+                gtex_tissue_dir=gtex_tissue_dir,
+                llm_provider=llm_provider,
+                llm_model=llm_model,
+                api_key=api_key,
+                base_url=base_url,
+                genome_fa=genome_fa,
+                genos_model_path=genos_model_path,
+            )
+        else:
+            # 方式B: config 字典
+            cfg_dict = kwargs.get("config", {})
+            if isinstance(cfg_dict, dict):
+                config = SeekRareConfig(**cfg_dict)
+            else:
+                config = cfg_dict
+
         self.cfg = config
         self._stage1_df: Optional[pd.DataFrame] = None
         self._llm_interpretation: Optional[dict] = None
