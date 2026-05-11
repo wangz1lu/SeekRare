@@ -1,6 +1,7 @@
 # SeekRare
 
 **罕见病候选变异诊断系统**
+<img width="1692" height="930" alt="seekrare" src="https://github.com/user-attachments/assets/99a4fe38-d278-46a9-bd2b-eceac98ae4b2" />
 
 ```
 VCF (proband + father + mother)
