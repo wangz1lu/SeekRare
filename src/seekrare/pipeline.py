@@ -29,6 +29,7 @@ from seekrare.preprocess import (
     stage1_dbsnp_filter,
     stage2_eqtl_annotation,
     stage4_genos_analysis,
+    run_family_preprocess,
 )
 
 

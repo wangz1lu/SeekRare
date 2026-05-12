@@ -8,7 +8,9 @@ VCF (proband + father + mother)
          │
   ┌──────┴─────────────────────────────────┐
   │         Stage 1 (必须)                  │
-  │  家系过滤 → GTF注释 → ClinVar注释       │
+  │  家系 trio: bcftools merge +           │
+  │    de_novo / recessive / xlinked 分类  │
+  │  单样本: VCF → GT → GTF → ClinVar     │
   └──────┬─────────────────────────────────┘
          │  3_clinvar_annotated.csv
   ┌──────┴─────────────────────────────────┐
@@ -171,32 +173,61 @@ Stage 4 Genos 模型：
 
 ### Stage 1: VCF 家系预处理 & 基本注释
 
-**输入**: `vcf_proband`, `vcf_father`, `vcf_mother`（VCF/VCF.gz）
+**自动检测家系模式：**
 
-**流程**:
+| 情况 | 模式 | 说明 |
+|------|------|------|
+| 只有 `vcf_proband` | 单样本模式 | VCF → GT → GTF → ClinVar |
+| `vcf_proband` + `father_vcf` + `mother_vcf` | 家系 trio 模式 | bcftools merge + 遗传模式分类 |
+
+**家系模式流程（纯 Python + bcftools subprocess）:**
 ```
-家系 VCF → dbSNP common 过滤（可选）
-       → bcftools norm/merge/filter（AD/DP/GQ 过滤）
-       → 复合杂合过滤（compound het）
-       → VCF → GT CSV（CHROM/POS/REF/ALT/GT）
-       → GTF gene annotation（gene_name, feature_type）
-       → ClinVar 注释（CLNDISDB, CLNDN, CLNREVSTAT, CLNSIG, CLNVC, ORIGIN）
+每个样本: bcftools norm -m -both（拆分 multi-allelic + left-normalize）
+         ↓
+  bcftools merge（三口合并）
+         ↓
+  bcftools filter（QUAL>30, DP>10, GQ>20）
+         ↓
+  bcftools norm --check-ref w（严格规范化）
+         ↓
+  去除缺失基因型
+         ↓
+  ┌──────────────────────────────────────────┐
+  │ de_novo:     父母均 0/0，子女为 alt       │
+  │ recessive:   父母均 het，子女为 hom_alt    │
+  │ xlinked:    父亲 het，母亲 0/0，子女 alt  │
+  └──────────────────────────────────────────┘
+         ↓
+  各遗传模式 VCF → GT CSV → GTF → ClinVar → 合并 CSV
 ```
 
-**输出**: `seekrare_output/3_clinvar_annotated.csv`
+**单样本模式流程：**
+```
+VCF → GT CSV → GTF gene annotation → ClinVar 注释
+```
+
+**输出**: `seekrare_output/3_clinvar_annotated.csv`（含 `inheritance_mode` 列）
 
 **用法**:
 ```python
 from seekrare import SeekRarePipeline
 
+# ── 家系 trio 模式 ──────────────────────────────────────────
 p = SeekRarePipeline(
     vcf_proband="child.vcf.gz",
     vcf_father="father.vcf.gz",
     vcf_mother="mother.vcf.gz",
-    ref_fasta="/path/to/GRCh38.fa",
+    ref_fasta="/path/to/GRCh38.fa",   # 必须（bcftools 需要）
     gtf_file="/path/to/genomic.gtf",
     clinvar_vcf="/path/to/clinvar.vcf.gz",
-    dbSNP_vcf="/path/to/dbsnp.vcf.gz",   # 可选，有则过滤 common variants
+)
+p.stage1_preprocess()
+
+# ── 单样本模式 ─────────────────────────────────────────────
+p = SeekRarePipeline(
+    vcf_proband="child.vcf.gz",
+    gtf_file="/path/to/genomic.gtf",
+    clinvar_vcf="/path/to/clinvar.vcf.gz",
 )
 p.stage1_preprocess()
 ```

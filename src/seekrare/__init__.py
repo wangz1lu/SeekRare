@@ -7,6 +7,7 @@ from seekrare.pipeline import (
     stage4_genos_analysis,
     stage4_alphafold_prediction,
 )
+from seekrare.preprocess.stage1_family import run_family_preprocess
 
 __version__ = "0.2.0"
 __all__ = [
@@ -15,4 +16,5 @@ __all__ = [
     "stage3_score_and_rank",
     "stage4_genos_analysis",
     "stage4_alphafold_prediction",
+    "run_family_preprocess",
 ]
