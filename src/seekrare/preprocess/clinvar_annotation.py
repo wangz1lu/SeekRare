@@ -100,7 +100,7 @@ def stage1_merge_filter_clinvar(
     if "#CHROM" in cv.columns:
         cv.rename(columns={"#CHROM": "CHROM"}, inplace=True)
 
-    clinvar_cols = ["CLNDISDB", "CLNDN", "CLNREVSTAT", "CLNSIG", "CLNVC", "ORIGIN"]
+    clinvar_cols = ["CLNDISDB", "CLNDN", "CLNREVSTAT", "CLNSIG", "CLNVC", "ORIGIN", "MC"]
     for col in clinvar_cols:
         if col not in cv.columns:
             cv[col] = ""

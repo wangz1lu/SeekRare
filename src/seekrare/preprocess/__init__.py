@@ -8,6 +8,7 @@ from seekrare.preprocess.eqtl_annotation import stage2_eqtl_annotation
 from seekrare.preprocess.stage4_genos import stage4_genos_analysis
 from seekrare.preprocess.stage4_alphafold import stage4_alphafold_prediction
 from seekrare.preprocess.stage1_family import run_family_preprocess
+from seekrare.preprocess.simplify_clinvar_csv import simplify_clinvar_csv
 
 __all__ = [
     "stage1_vcf_to_gt_csv",
@@ -18,4 +19,5 @@ __all__ = [
     "stage4_genos_analysis",
     "stage4_alphafold_prediction",
     "run_family_preprocess",
+    "simplify_clinvar_csv",
 ]

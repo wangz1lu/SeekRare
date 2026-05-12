@@ -42,6 +42,7 @@ import pandas as pd
 from loguru import logger
 
 from seekrare.preprocess.vcf_to_gt import stage1_vcf_to_gt_csv
+from seekrare.preprocess.simplify_clinvar_csv import simplify_clinvar_csv
 from seekrare.preprocess.gene_annotation import stage1_annotate_by_gtf
 from seekrare.preprocess.clinvar_annotation import stage1_merge_filter_clinvar
 
@@ -540,6 +541,9 @@ def _singleton_mode(
                 str(final_csv),
             )
         df = pd.read_csv(str(final_csv), dtype=str)
+
+    # 精简 CSV
+    df = simplify_clinvar_csv(df)
 
     df["inheritance_mode"] = "singleton"
     df["rank"] = range(1, len(df) + 1)
