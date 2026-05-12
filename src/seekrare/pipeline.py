@@ -46,7 +46,7 @@ class SeekRareConfig:
     ref_fasta: Optional[Union[str, Path]] = None
     gtf_file: Optional[Union[str, Path]] = None
     clinvar_vcf: Optional[Union[str, Path]] = None
-    dbSNP_vcf: Optional[Union[str, Path]] = None
+    dbsnp_vcf: Optional[Union[str, Path]] = None
     work_dir: Union[str, Path] = "seekrare_output"
 
     # Stage 2
@@ -85,7 +85,7 @@ class SeekRarePipeline:
             ref_fasta="/ref/GRCh38.fa",
             gtf_file="/ref/genomic.gtf",
             clinvar_vcf="/ref/clinvar.vcf.gz",
-            dbSNP_vcf="/ref/dbsnp.vcf.gz",
+            dbsnp_vcf="/ref/dbsnp.vcf.gz",
         )
         p.stage1_preprocess()
         p.stage2_eqtl_annotation(symptoms="眼部病变")
@@ -101,7 +101,7 @@ class SeekRarePipeline:
         ref_fasta: Optional[str] = None,
         gtf_file: Optional[str] = None,
         clinvar_vcf: Optional[str] = None,
-        dbSNP_vcf: Optional[str] = None,
+        dbsnp_vcf: Optional[str] = None,
         work_dir: str = "seekrare_output",
         gtex_tissue_dir: Optional[str] = None,
         llm_provider: str = "openai",
@@ -131,7 +131,7 @@ class SeekRarePipeline:
                 ref_fasta=ref_fasta,
                 gtf_file=gtf_file,
                 clinvar_vcf=clinvar_vcf,
-                dbSNP_vcf=dbSNP_vcf,
+                dbsnp_vcf=dbsnp_vcf,
                 work_dir=work_dir,
                 gtex_tissue_dir=gtex_tissue_dir,
                 llm_provider=llm_provider,
@@ -159,67 +159,31 @@ class SeekRarePipeline:
         """
         Stage 1: VCF → 基本注释 CSV。
 
-        流程:
-        1. dbSNP common 过滤（如果有 dbSNP_vcf）
-        2. VCF → GT CSV（CHROM/POS/REF/ALT/GT）
-        3. GTF gene annotation（gene_name, feature_type）
-        4. ClinVar 注释（CLNDISDB, CLNDN, CLNREVSTAT, CLNSIG, CLNVC, ORIGIN）
+        自动检测家系模式：
+          - 若提供了 father_vcf + mother_vcf → 家系 trio 模式
+            （de_novo / recessive / xlinked 分类，基于 bcftools merge）
+          - 否则 → 单样本模式
 
         Returns
         -------
-        pd.DataFrame: 基本注释完成的 variants
+        pd.DataFrame: 基本注释完成的 variants（含 inheritance_mode 列）
         """
-        logger.info("=" * 60)
-        logger.info("Stage 1: VCF Preprocessing & Basic Annotation")
-        logger.info("=" * 60)
-
         cfg = self.cfg
-        wd = cfg.work_dir
 
-        # dbSNP 过滤
-        proband_vcf = cfg.vcf_proband
-        if cfg.dbSNP_vcf and cfg.ref_fasta:
-            dbSNP_filtered = wd / "proband.nocommon.vcf.gz"
-            if not dbSNP_filtered.exists():
-                logger.info(f"Step 1: dbSNP common 过滤 → {dbSNP_filtered}")
-                result = stage1_dbsnp_filter(
-                    input_vcf=str(proband_vcf),
-                    dbsnp_vcf=str(cfg.dbSNP_vcf),
-                    output_vcf=str(dbSNP_filtered),
-                )
-                logger.info(f"  {result['n_removed']}/{result['n_before']} removed")
-                proband_vcf = str(dbSNP_filtered)
-            else:
-                proband_vcf = str(dbSNP_filtered)
-                logger.info(f"  [跳过] {dbSNP_filtered} 已存在")
+        result = run_family_preprocess(
+            work_dir=str(cfg.work_dir),
+            child_vcf=str(cfg.vcf_proband),
+            father_vcf=str(cfg.vcf_father) if cfg.vcf_father else None,
+            mother_vcf=str(cfg.vcf_mother) if cfg.vcf_mother else None,
+            ref_fasta=str(cfg.ref_fasta) if cfg.ref_fasta else None,
+            gtf_file=str(cfg.gtf_file) if cfg.gtf_file else None,
+            clinvar_vcf=str(cfg.clinvar_vcf) if cfg.clinvar_vcf else None,
+            dbsnp_vcf=str(cfg.dbsnp_vcf) if cfg.dbsnp_vcf else None,
+        )
 
-        # VCF → GT CSV
-        gt_csv = wd / "1_gt.csv"
-        if not gt_csv.exists():
-            logger.info(f"Step 2: VCF → GT CSV")
-            stage1_vcf_to_gt_csv(str(proband_vcf), str(gt_csv))
-        df = pd.read_csv(gt_csv, dtype=str)
-        logger.info(f"  {len(df)} variants")
-
-        # GTF annotation
-        if cfg.gtf_file:
-            gtf_csv = wd / "2_gtf_annotated.csv"
-            if not gtf_csv.exists():
-                logger.info(f"Step 3: GTF annotation")
-                stage1_annotate_by_gtf(str(gt_csv), str(cfg.gtf_file), str(gtf_csv))
-            df = pd.read_csv(str(gtf_csv), dtype=str)
-
-        # ClinVar annotation
-        if cfg.clinvar_vcf:
-            clinvar_csv = wd / "3_clinvar_annotated.csv"
-            if not clinvar_csv.exists():
-                logger.info(f"Step 4: ClinVar annotation")
-                stage1_merge_filter_clinvar(str(gtf_csv), str(cfg.clinvar_vcf), str(clinvar_csv))
-            df = pd.read_csv(str(clinvar_csv), dtype=str)
-
-        self._stage1_df = df
-        logger.info(f"Stage 1 完成: {len(df)} variants, {len(df.columns)} columns")
-        return df
+        self._stage1_df = result["combined"]
+        self._stage1_modes = result["modes"]
+        return self._stage1_df
 
     # ── Stage 2 ──────────────────────────────────────────────────────────
 
