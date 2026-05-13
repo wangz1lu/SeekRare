@@ -97,4 +97,9 @@ def simplify_clinvar_csv(df: pd.DataFrame) -> pd.DataFrame:
         df["OMIM"]     = df["CLNDISDB"].apply(_extract_omim)
         df["Orphanet"] = df["CLNDISDB"].apply(_extract_orphanet)
 
+    # 9. 删除拆分后的原始列
+    for col in ["CLNDISDB", "CLNREVSTAT"]:
+        if col in df.columns:
+            df.drop(columns=[col], inplace=True)
+
     return df
