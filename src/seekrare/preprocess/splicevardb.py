@@ -56,16 +56,21 @@ def stage2_splicevardb_annotation(
         if hg38_val and hg38_val not in ("nan", ""):
             sv_dict[hg38_val] = classification
 
-    # Build CPRA from Stage 1: chr-pos-ref-alt (dash-separated, no chr prefix)
-    # Format matches SpliceVARDB hg38 column: "1-100107682-T-C"
+    # Build CPRA from Stage 1 (colon-separated): chr:pos:ref:alt
     df["_cpr"] = (
         df["CHROM"].astype(str).str.replace("chr", "", regex=False)
-        + "-" + df["POS"].astype(str)
-        + "-" + df["REF"].astype(str)
-        + "-" + df["ALT"].astype(str)
+        + ":" + df["POS"].astype(str)
+        + ":" + df["REF"].astype(str)
+        + ":" + df["ALT"].astype(str)
     )
 
-    df["splicevardb"] = df["_cpr"].map(sv_dict).fillna("")
+    # Normalize SpliceVARDB hg38 to colon format: "1-100107682-T-C" → "1:100107682:T:C"
+    sv_dict_norm = {}
+    for k, v in sv_dict.items():
+        normalized = k.replace("-", ":")
+        sv_dict_norm[normalized] = v
+
+    df["splicevardb"] = df["_cpr"].map(sv_dict_norm).fillna("")
     df.drop(columns=["_cpr"], inplace=True)
 
     n_hit = (df["splicevardb"] != "").sum()
