@@ -45,6 +45,7 @@ from seekrare.preprocess.vcf_to_gt import stage1_vcf_to_gt_csv
 from seekrare.preprocess.simplify_clinvar_csv import simplify_clinvar_csv
 from seekrare.preprocess.gene_annotation import stage1_annotate_by_gtf
 from seekrare.preprocess.clinvar_annotation import stage1_merge_filter_clinvar
+from seekrare.preprocess.dbsnp_filter import stage1_dbsnp_filter
 
 
 # ─────────────────────────────────────────────────────────────────────────────
