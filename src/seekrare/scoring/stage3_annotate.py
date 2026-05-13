@@ -1,11 +1,23 @@
 """
-stage3_annotate.py — Stage 3: LLM 打分 + 排序
+stage3_annotate.py — Stage 3: LLM 动态打分 + 排序
 
 工作流:
-1. stage3_prep.summarize_stage1() — 解析标签，统计 unique 值
-2. LLM 接收 prompt → 输出 JSON 打分
-3. 本地 Python 计算每行分数
+1. summarize_stage1() — 解析标签，统计 unique 值
+2. LLM 接收 prompt → 输出 JSON 打分（动态列的 per-value scores + 权重）
+3. 本地 Python 计算每行分数（静态列直接查表，动态列 LLM 打分）
 4. 排序输出 top-K
+
+动态评分列（LLM 给出 per-value score）:
+  gene_name, HPO, OMIM, Orphanet, inheritance_mode, MC
+
+固定评分列（代码内置映射表）:
+  feature_type:  CDS=1, exon=0.9, gene=0.7, start_codon=0.8, stop_codon=0.8, transcript=0.5
+  significance:  Pathogenic=1, Likely_Pathogenic=0.85, Uncertain_significance=0.5,
+                Conflicting_classifications_of_pathogenicity=0.4, Likely_benign=0.1, Benign=0
+                ( "/" 分隔时取最坏情况)
+  clinvarstar:   0~5 直接映射数字
+  eqtl_tissue:   有内容=0.5, 空=0
+  splicevardb:    Splice-altering=1, Low-frequency=0.6, Conflicting=0.5, Normal=0.2, 其他=0
 """
 
 from __future__ import annotations
@@ -26,6 +38,80 @@ from seekrare.scoring.stage3_prep import (
 )
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# 固定打分表（内置，LLM 不参与）
+# ─────────────────────────────────────────────────────────────────────────────
+
+FEATURE_TYPE_MAP = {
+    "CDS": 1.0,
+    "exon": 0.9,
+    "gene": 0.7,
+    "start_codon": 0.8,
+    "stop_codon": 0.8,
+    "transcript": 0.5,
+}
+
+
+SIGNIFICANCE_WORST = {
+    "Benign": 0.0,
+    "Likely_benign": 0.1,
+    "Conflicting_classifications_of_pathogenicity": 0.4,
+    "Uncertain_significance": 0.5,
+    "Likely_Pathogenic": 0.85,
+    "Pathogenic": 1.0,
+    "other": 0.5,
+}
+
+
+def _score_significance(val: str) -> float:
+    """处理 "/" 分隔的多值 significance，取最坏（最高分 = 最致病）"""
+    if pd.isna(val) or str(val).strip() == "":
+        return 0.0
+    parts = str(val).strip().split("/")
+    scores = []
+    for p in parts:
+        p = p.strip()
+        scores.append(SIGNIFICANCE_WORST.get(p, 0.5))
+    return max(scores) if scores else 0.0
+
+
+CLINVARSTAR_MAP = {
+    "0": 0.0, "1": 1.0, "2": 2.0, "3": 3.0, "4": 4.0, "5": 5.0,
+    0: 0.0, 1: 1.0, 2: 2.0, 3: 3.0, 4: 4.0, 5: 5.0,
+}
+
+
+def _score_clinvarstar(val) -> float:
+    if pd.isna(val):
+        return 0.0
+    return CLINVARSTAR_MAP.get(str(val).strip(), 0.0)
+
+
+SPLICEVARDB_MAP = {
+    "Splice-altering": 1.0,
+    "Low-frequency": 0.6,
+    "Conflicting": 0.5,
+    "Normal": 0.2,
+}
+
+
+def _score_splicevardb(val: str) -> float:
+    if pd.isna(val) or str(val).strip() == "":
+        return 0.0
+    return SPLICEVARDB_MAP.get(str(val).strip(), 0.0)
+
+
+def _score_eqtl_tissue(val: str) -> float:
+    """有内容（组织名）就给分"""
+    if pd.isna(val) or str(val).strip() == "":
+        return 0.0
+    return 0.5
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Stage3Scorer
+# ─────────────────────────────────────────────────────────────────────────────
+
 class Stage3Scorer:
     """
     Stage 3: LLM 驱动的变异排序。
@@ -33,9 +119,11 @@ class Stage3Scorer:
     参数
     ----
     csv_path : str
-        Stage 1 输出 CSV (3_clinvar_annotated.csv)
+        Stage 1/2 输出 CSV
     symptoms : str
         患者症状描述（自由文本）
+    patient_sex : str, optional
+        患者性别 "male" / "female"（影响 inheritance_mode 打分）
     top_k : int
         返回 top-K 候选，默认 50
     llm_provider : str
@@ -46,18 +134,32 @@ class Stage3Scorer:
     base_url : str, optional
     """
 
+    # 固定列（内置映射表）
+    STATIC_COLS = [
+        "feature_type", "significance", "clinvarstar",
+        "eqtl_tissue", "splicevardb",
+    ]
+
+    # 动态列（LLM 给出 per-value scores）
+    DYNAMIC_COLS = [
+        "gene_name", "HPO", "OMIM", "Orphanet",
+        "inheritance_mode", "MC",
+    ]
+
     def __init__(
         self,
         csv_path: str,
         symptoms: str,
+        patient_sex: Optional[str] = None,
         top_k: int = 50,
         llm_provider: str = "openai",
-        llm_model: str = "gpt-4o",
+        llm_model: str = "deepseek-v4-flash",
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
     ):
         self.csv_path = str(csv_path)
         self.symptoms = symptoms
+        self.patient_sex = patient_sex or "unknown"
         self.top_k = top_k
         self.llm_provider = llm_provider
         self.llm_model = llm_model
@@ -100,7 +202,6 @@ class Stage3Scorer:
         else:
             raise ValueError(f"Unknown provider: {self.llm_provider}")
 
-        # 提取 JSON
         content = content.strip()
         if content.startswith("```json"):
             content = content[7:]
@@ -113,97 +214,124 @@ class Stage3Scorer:
     # ── 打分计算 ────────────────────────────────────────────────────────────
 
     @staticmethod
-    def _score_feature_type(val: str, score_map: dict) -> float:
+    def _score_gene_name(val: str, score_map: dict) -> float:
         if pd.isna(val) or str(val).strip() == "":
             return 0.0
         return score_map.get(str(val).strip(), 0.0)
 
     @staticmethod
-    def _score_clnsig(val: str, score_map: dict) -> float:
+    def _score_hpo(val: str, score_map: dict) -> float:
+        """解析 HPO 标签（HP:xxxx），取最高分"""
         if pd.isna(val) or str(val).strip() == "":
             return 0.0
-        return score_map.get(str(val).strip(), 0.0)
-
-    @staticmethod
-    def _score_clnrevstat(val: str, score_map: dict) -> float:
-        if pd.isna(val) or str(val).strip() == "":
-            return 0.0
-        return score_map.get(str(val).strip(), 0.0)
-
-    @staticmethod
-    def _score_tags(val: str, score_map: dict, parser_fn) -> float:
-        """
-        解析 CLNDISDB / CLNDN 标签，取该行所有标签中最高分。
-        """
-        tags = parser_fn(val)
-        if not tags:
-            return 0.0
-        scores = [score_map.get(t, 0.0) for t in tags]
+        tags = str(val).strip().split(";")
+        scores = [score_map.get(t.strip(), 0.0) for t in tags if t.strip()]
         return max(scores) if scores else 0.0
 
-    def score_row(self, row: pd.Series, weights: dict, score_maps: dict) -> float:
-        """计算单行加权总分。"""
-        w = weights
-        m = score_maps
+    @staticmethod
+    def _score_omim(val: str, score_map: dict) -> float:
+        """解析 OMIM 标签，取最高分"""
+        if pd.isna(val) or str(val).strip() == "":
+            return 0.0
+        tags = str(val).strip().split(";")
+        scores = [score_map.get(t.strip(), 0.0) for t in tags if t.strip()]
+        return max(scores) if scores else 0.0
 
-        s_ft = self._score_feature_type(row.get("feature_type", ""), m["feature_type"])
-        s_sig = self._score_clnsig(row.get("CLNSIG", ""), m["clnsig"])
-        s_rs = self._score_clnrevstat(row.get("CLNREVSTAT", ""), m["clnrevstat"])
-        s_db = self._score_tags(row.get("CLNDISDB", ""), m["clndisdb_tags"], parse_clndisdb_tags)
-        s_dn = self._score_tags(row.get("CLNDN", ""), m["clndn_tags"], parse_clndn_tags)
+    @staticmethod
+    def _score_orphanet(val: str, score_map: dict) -> float:
+        """解析 Orphanet 标签，取最高分"""
+        if pd.isna(val) or str(val).strip() == "":
+            return 0.0
+        tags = str(val).strip().split(";")
+        scores = [score_map.get(t.strip(), 0.0) for t in tags if t.strip()]
+        return max(scores) if scores else 0.0
+
+    @staticmethod
+    def _score_inheritance_mode(val: str, score_map: dict) -> float:
+        if pd.isna(val) or str(val).strip() == "":
+            return 0.0
+        return score_map.get(str(val).strip(), 0.0)
+
+    @staticmethod
+    def _score_mc(val: str, score_map: dict) -> float:
+        """MC 取值可能是 SO:xxxx 格式，直接查 score_map"""
+        if pd.isna(val) or str(val).strip() == "":
+            return 0.0
+        return score_map.get(str(val).strip(), 0.0)
+
+    def score_row(self, row: pd.Series, weights: dict, dynamic_maps: dict) -> float:
+        """计算单行加权总分（静态列 + 动态列）"""
+        w = weights
+        dm = dynamic_maps
+
+        # ── 静态列（内置映射表）──────────────────────────────
+        s_ft = FEATURE_TYPE_MAP.get(str(row.get("feature_type", "")).strip(), 0.0)
+        s_sig = _score_significance(row.get("significance", ""))
+        s_star = _score_clinvarstar(row.get("clinvarstar", ""))
+        s_eqtl = _score_eqtl_tissue(row.get("eqtl_tissue", ""))
+        s_sp = _score_splicevardb(row.get("splicevardb", ""))
+
+        # ── 动态列（LLM 打分）───────────────────────────────
+        s_gene = self._score_gene_name(row.get("gene_name", ""), dm.get("gene_name", {}))
+        s_hpo = self._score_hpo(row.get("HPO", ""), dm.get("HPO", {}))
+        s_omim = self._score_omim(row.get("OMIM", ""), dm.get("OMIM", {}))
+        s_orphan = self._score_orphanet(row.get("Orphanet", ""), dm.get("Orphanet", {}))
+        s_inh = self._score_inheritance_mode(row.get("inheritance_mode", ""), dm.get("inheritance_mode", {}))
+        s_mc = self._score_mc(row.get("MC", ""), dm.get("MC", {}))
 
         return (
-            s_ft * w.get("feature_type", 0.0)
-            + s_sig * w.get("CLNSIG", 0.0)
-            + s_rs * w.get("CLNREVSTAT", 0.0)
-            + s_db * w.get("CLNDISDB", 0.0)
-            + s_dn * w.get("CLNDN", 0.0)
+            s_ft    * w.get("feature_type", 0.0)
+            + s_sig * w.get("significance", 0.0)
+            + s_star * w.get("clinvarstar", 0.0)
+            + s_eqtl * w.get("eqtl_tissue", 0.0)
+            + s_sp   * w.get("splicevardb", 0.0)
+            + s_gene  * w.get("gene_name", 0.0)
+            + s_hpo   * w.get("HPO", 0.0)
+            + s_omim  * w.get("OMIM", 0.0)
+            + s_orphan * w.get("Orphanet", 0.0)
+            + s_inh   * w.get("inheritance_mode", 0.0)
+            + s_mc    * w.get("MC", 0.0)
         )
 
     # ── 主流程 ─────────────────────────────────────────────────────────────
 
     def run(self) -> pd.DataFrame:
-        """
-        执行 Stage 3 全流程。
-
-        Returns
-        -------
-        pd.DataFrame
-            排序后的 top-K 候选变异（含 seekrare_score 列）
-        """
-        logger.info("Stage 3: LLM Scoring & Ranking")
+        """执行 Stage 3 全流程。"""
+        logger.info("Stage 3: LLM Dynamic Scoring & Ranking")
         logger.info(f"  Input: {self.csv_path}")
         logger.info(f"  Symptoms: {self.symptoms}")
+        logger.info(f"  Patient sex: {self.patient_sex}")
 
-        # ── 1. 数据摘要 ─────────────────────────────────────────────────────
+        # ── 1. 数据摘要（收集动态列 unique 值）────────────────────────────
         summary = summarize_stage1(self.csv_path)
-        logger.info(f"  Summary: {summary['n_total']:,} rows, {summary['n_with_clinvar']:,} with ClinVar")
-        logger.info(f"  CLNDISDB tags: {len(summary['clndisdb_tag_counts'])}")
-        logger.info(f"  CLNDN tags: {len(summary['clndn_tag_counts'])}")
+        logger.info(f"  Summary: {summary['n_total']:,} rows")
 
-        # ── 2. LLM 打分 prompt ───────────────────────────────────────────────
-        prompt = build_llm_prompt(self.symptoms, summary)
+        # ── 2. LLM 打分 prompt ─────────────────────────────────────────────
+        prompt = build_llm_prompt_new(self.symptoms, self.patient_sex, summary)
         logger.info("  Sending prompt to LLM...")
 
-        raw_scores = self._call_llm(prompt)
-        logger.info(f"  LLM response keys: {list(raw_scores.keys())}")
+        raw = self._call_llm(prompt)
+        logger.info(f"  LLM response keys: {list(raw.keys())}")
 
-        weights = raw_scores.get("col_weights", {})
-        score_maps = {
-            "feature_type": raw_scores.get("feature_type_scores", {}),
-            "clnsig": raw_scores.get("clnsig_scores", {}),
-            "clnrevstat": raw_scores.get("clnrevstat_scores", {}),
-            "clndisdb_tags": raw_scores.get("clndisdb_tag_scores", {}),
-            "clndn_tags": raw_scores.get("clndn_tag_scores", {}),
+        weights = raw.get("col_weights", {})
+
+        # 动态列 per-value score maps
+        dynamic_maps = {
+            "gene_name":        raw.get("gene_name_scores", {}),
+            "HPO":              raw.get("HPO_scores", {}),
+            "OMIM":             raw.get("OMIM_scores", {}),
+            "Orphanet":         raw.get("Orphanet_scores", {}),
+            "inheritance_mode": raw.get("inheritance_mode_scores", {}),
+            "MC":               raw.get("MC_scores", {}),
         }
 
-        self._scores = {"weights": weights, "maps": score_maps}
+        self._scores = {"weights": weights, "maps": dynamic_maps}
 
         # ── 3. 本地打分 ─────────────────────────────────────────────────────
         logger.info("  Scoring all rows locally...")
         df = pd.read_csv(self.csv_path, dtype=str, low_memory=False)
         df["seekrare_score"] = df.apply(
-            lambda row: self.score_row(row, weights, score_maps),
+            lambda row: self.score_row(row, weights, dynamic_maps),
             axis=1,
         )
 
@@ -219,7 +347,155 @@ class Stage3Scorer:
         return result
 
     def save(self, df: pd.DataFrame, output_path: str):
-        """保存结果。"""
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(output_path, index=False)
         logger.info(f"  Stage 3 结果已保存: {output_path}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 新版 prompt builder（适配新列体系）
+# ─────────────────────────────────────────────────────────────────────────────
+
+def build_llm_prompt_new(symptoms: str, patient_sex: str, summary: dict) -> str:
+    """
+    生成新版 LLM prompt：
+      - 静态列说明（内置打分，无需 LLM 输出）
+      - 动态列 unique 值（LLM 输出 per-value scores）
+      - col_weights（动态列权重，静态列权重固定）
+    """
+    # 收集各动态列 unique tags
+    gene_names = list(summary.get("gene_name_counts", {}).keys())[:100]
+    hpo_tags = list(summary.get("HPO_tag_counts", {}).keys())[:100]
+    omim_tags = list(summary.get("OMIM_tag_counts", {}).keys())[:100]
+    orphanet_tags = list(summary.get("Orphanet_tag_counts", {}).keys())[:100]
+    inh_modes = list(summary.get("inheritance_mode_counts", {}).keys())
+    mc_values = list(summary.get("MC_counts", {}).keys())[:50]
+
+    lines = [
+        f"患者症状: {symptoms}",
+        f"患者性别: {patient_sex}",
+        f"",
+        f"变异数据统计（共 {summary['n_total']:,} 行）:",
+        f"",
+        f"【静态评分列】（代码内置映射表，LLM 不需输出这些的分数）:",
+        f"  feature_type:  CDS=1.0, exon=0.9, gene=0.7, start_codon=0.8, stop_codon=0.8, transcript=0.5",
+        f"  significance: '/' 分隔时取最坏情况。Pathogenic=1.0, Likely_Pathogenic=0.85,",
+        f"                Uncertain_significance=0.5, Conflicting=0.4, Likely_benign=0.1, Benign=0.0",
+        f"  clinvarstar:  直接用星级数字 0~5",
+        f"  eqtl_tissue:  有内容=0.5，无内容=0",
+        f"  splicevardb:  Splice-altering=1.0, Low-frequency=0.6, Conflicting=0.5, Normal=0.2",
+        f"",
+        f"【动态评分列】（LLM 必须输出每列的 per-value scores 和权重）:",
+        f"",
+        f"【gene_name unique 值】({len(gene_names)} 个，展示部分):",
+    ]
+    for g in gene_names[:30]:
+        lines.append(f"  {g}")
+
+    lines.extend([
+        f"",
+        f"【HPO 标签分布】(HP:xxxx 格式，展示部分):",
+    ])
+    hpo_counts = summary.get("HPO_tag_counts", {})
+    for tag, cnt in list(hpo_counts.items())[:50]:
+        lines.append(f"  [{cnt}] {tag}")
+
+    lines.extend([
+        f"",
+        f"【OMIM 标签分布】(展示部分):",
+    ])
+    omim_counts = summary.get("OMIM_tag_counts", {})
+    for tag, cnt in list(omim_counts.items())[:50]:
+        lines.append(f"  [{cnt}] {tag}")
+
+    lines.extend([
+        f"",
+        f"【Orphanet 标签分布】(展示部分):",
+    ])
+    orphanet_counts = summary.get("Orphanet_tag_counts", {})
+    for tag, cnt in list(orphanet_counts.items())[:50]:
+        lines.append(f"  [{cnt}] {tag}")
+
+    lines.extend([
+        f"",
+        f"【inheritance_mode 分布】:",
+    ])
+    inh_counts = summary.get("inheritance_mode_counts", {})
+    for k, v in inh_counts.items():
+        lines.append(f"  {k}: {v}")
+
+    lines.extend([
+        f"",
+        f"【MC 值分布】(SO:xxxx 格式，展示部分):",
+    ])
+    mc_counts = summary.get("MC_counts", {})
+    for k, v in list(mc_counts.items())[:50]:
+        lines.append(f"  [{v}] {k}")
+
+    lines.extend([
+        f"",
+        f"请根据患者症状（考虑患者性别: {patient_sex}），为以上动态列的每个取值给出 0~1 的相关性分数（1=最相关，0=不相关）:",
+        f"",
+        f"  1. gene_name_scores: {{基因名: 分数, ...}}",
+        f"  2. HPO_scores: {{HP:xxxx: 分数, ...}}",
+        f"  3. OMIM_scores: {{OMIM:xxxxx: 分数, ...}}",
+        f"  4. Orphanet_scores: {{Orphanet:xxxxx: 分数, ...}}",
+        f"  5. inheritance_mode_scores: {{denovo/recessive/xlinked: 分数}}",
+        f"     （考虑患者性别：男性更关注X连锁，女性更关注常染色体隐性）",
+        f"  6. MC_scores: {{SO:xxxx: 分数, ...}}",
+        f"  7. col_weights: 各列权重（归一化为 sum=1.0，只给动态列权重，静态列权重固定）",
+        f"",
+        f"返回 JSON 格式：",
+        f'''{{
+  "gene_name_scores": {{"SASS6": 0.9, "DBT": 0.8, ...}},
+  "HPO_scores": {{"HP:0004321": 0.95, "HP:0001513": 0.7, ...}},
+  "OMIM_scores": {{"OMIM:616126": 0.9, ...}},
+  "Orphanet_scores": {{"Orphanet:319563": 0.8, ...}},
+  "inheritance_mode_scores": {{"de_novo": 0.9, "recessive": 0.7, "xlinked": 0.3}},
+  "MC_scores": {{"SO:0001583": 0.7, "SO:0001627": 0.9, ...}},
+  "col_weights": {{
+    "gene_name": 0.15, "HPO": 0.15, "OMIM": 0.15,
+    "Orphanet": 0.10, "inheritance_mode": 0.10, "MC": 0.10,
+    "feature_type": 0.10, "significance": 0.10, "clinvarstar": 0.025,
+    "eqtl_tissue": 0.025, "splicevardb": 0.025
+  }}
+}}''',
+    ])
+
+    return "\n".join(lines)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 兼容旧接口
+# ─────────────────────────────────────────────────────────────────────────────
+
+def stage3_score_and_rank(
+    csv_path: str,
+    symptoms: str,
+    patient_sex: Optional[str] = None,
+    output_csv: Optional[str] = None,
+    top_k: int = 50,
+    llm_provider: str = "openai",
+    llm_model: str = "deepseek-v4-flash",
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
+) -> pd.DataFrame:
+    """
+    Stage 3 独立函数接口。
+
+    静态列直接用内置映射表打分，动态列由 LLM 给出 per-value scores。
+    """
+    scorer = Stage3Scorer(
+        csv_path=csv_path,
+        symptoms=symptoms,
+        patient_sex=patient_sex,
+        top_k=top_k,
+        llm_provider=llm_provider,
+        llm_model=llm_model,
+        api_key=api_key,
+        base_url=base_url,
+    )
+    result = scorer.run()
+    if output_csv:
+        scorer.save(result, output_csv)
+    return result
