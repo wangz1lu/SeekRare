@@ -229,16 +229,15 @@ class SeekRarePipeline:
         stage1_csv: Optional[str] = None,
         splicevardb_tsv: Optional[str] = None,
         output_csv: Optional[str] = None,
-        **kwargs,
     ) -> pd.DataFrame:
         """
         Stage 2: SpliceVARDB 剪接变异注释。
 
         Parameters
         ----------
-        stage1_csv : str, optional   Stage 1 输出 CSV
-        splicevardb_tsv : str, optional   SpliceVARDB TSV 文件
-        output_csv : str, optional   输出 CSV（默认覆盖 Stage 1 CSV）
+        stage1_csv : str, optional   Stage 1 输出 CSV（默认 work_dir/3_clinvar_annotated.csv）
+        splicevardb_tsv : str, optional   SpliceVARDB TSV 文件路径
+        output_csv : str, optional   输出 CSV（默认覆盖 stage1_csv）
         """
         if stage1_csv is None:
             stage1_csv = str(self.cfg.work_dir / "3_clinvar_annotated.csv")
@@ -248,13 +247,12 @@ class SeekRarePipeline:
             logger.warning("[SpliceVARDB] splicevardb_tsv not provided, skipping")
             return pd.read_csv(stage1_csv) if Path(stage1_csv).exists() else pd.DataFrame()
         if output_csv is None:
-            output_csv = stage1_csv  # overwrite by default
+            output_csv = stage1_csv
 
         df = stage2_splicevardb_annotation(
-            stage1_csv=stage1_csv,
+            input_csv=stage1_csv,
             splicevardb_tsv=splicevardb_tsv,
             output_csv=output_csv,
-            **kwargs,
         )
         self._stage2_df = df
         return df
