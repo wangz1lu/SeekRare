@@ -460,7 +460,7 @@ def run_family_preprocess(
     if dbsnp_vcf:
         common_vcf = str(trio_dir / "no.common.vcf.gz")
         logger.info(f"[Step 6b] Filter common dbSNP (AF > 0.01)...")
-        stage1_dbsnp_filter(no_miss, dbsnp_vcf, common_vcf, af_threshold=0.01)
+        stage1_dbsnp_filter(no_miss, dbsnp_vcf, common_vcf)
         no_miss = common_vcf
         logger.info(f"  → {common_vcf}")
     else:
