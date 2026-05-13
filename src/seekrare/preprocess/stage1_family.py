@@ -455,6 +455,16 @@ def run_family_preprocess(
     logger.info("[Step 6] Drop missing genotypes...")
     _drop_missing(norm_clean, no_miss)
 
+    # Step 6b: filter common variants (dbSNP AF > 0.01)
+    if dbsnp_vcf:
+        common_vcf = str(trio_dir / "no.common.vcf.gz")
+        logger.info(f"[Step 6b] Filter common dbSNP (AF > 0.01)...")
+        stage1_dbsnp_filter(no_miss, dbsnp_vcf, common_vcf, af_threshold=0.01)
+        no_miss = common_vcf
+        logger.info(f"  → {common_vcf}")
+    else:
+        logger.info("[Step 6b] Skip (no dbsnp_vcf provided)")
+
     # Step 7: inheritance filters
     mode_dfs: dict[str, Optional[pd.DataFrame]] = {}
 
