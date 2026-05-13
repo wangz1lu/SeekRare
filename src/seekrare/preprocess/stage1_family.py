@@ -402,7 +402,7 @@ def run_family_preprocess(
         logger.info("Stage 1: 单样本模式")
         logger.info("=" * 60)
         return _singleton_mode(
-            work_dir, child_vcf, gtf_file, clinvar_vcf
+            work_dir, child_vcf, gtf_file, clinvar_vcf, dbsnp_vcf
         )
 
     # ── 家系模式 ─────────────────────────────────────────────────────────
@@ -531,8 +531,19 @@ def _singleton_mode(
     child_vcf: str,
     gtf_file: Optional[str],
     clinvar_vcf: Optional[str],
+    dbsnp_vcf: Optional[str],
 ) -> dict:
-    """单样本模式：VCF → GT → GTF → ClinVar"""
+    """单样本模式：VCF → dbSNP过滤 → GT → GTF → ClinVar"""
+    # Step 0: filter common variants first (before any processing)
+    if dbsnp_vcf:
+        non_common_vcf = str(work_dir / "proband.nocommon.vcf.gz")
+        logger.info("[Singleton Step 0] Filter common dbSNP variants...")
+        stage1_dbsnp_filter(child_vcf, dbsnp_vcf, non_common_vcf)
+        child_vcf = non_common_vcf
+        logger.info(f"  → {non_common_vcf}")
+    else:
+        logger.info("[Singleton Step 0] Skip (no dbsnp_vcf provided)")
+
     gt_csv   = work_dir / "1_gt.csv"
     gtf_csv  = work_dir / "2_gtf_annotated.csv"
     final_csv = work_dir / "3_clinvar_annotated.csv"
