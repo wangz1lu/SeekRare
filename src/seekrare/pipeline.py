@@ -51,6 +51,7 @@ class SeekRareConfig:
 
     # Stage 2
     gtex_tissue_dir: Optional[Union[str, Path]] = None
+    splicevardb_tsv: Optional[Union[str, Path]] = None
 
     # Stage 3
     llm_provider: str = "openai"
@@ -218,6 +219,41 @@ class SeekRarePipeline:
             llm_model=self.cfg.llm_model,
             api_key=self.cfg.api_key,
             base_url=self.cfg.base_url,
+            **kwargs,
+        )
+        self._stage2_df = df
+        return df
+
+    def stage2_splicevardb_annotation(
+        self,
+        stage1_csv: Optional[str] = None,
+        splicevardb_tsv: Optional[str] = None,
+        output_csv: Optional[str] = None,
+        **kwargs,
+    ) -> pd.DataFrame:
+        """
+        Stage 2: SpliceVARDB 剪接变异注释。
+
+        Parameters
+        ----------
+        stage1_csv : str, optional   Stage 1 输出 CSV
+        splicevardb_tsv : str, optional   SpliceVARDB TSV 文件
+        output_csv : str, optional   输出 CSV（默认覆盖 Stage 1 CSV）
+        """
+        if stage1_csv is None:
+            stage1_csv = str(self.cfg.work_dir / "3_clinvar_annotated.csv")
+        if splicevardb_tsv is None:
+            splicevardb_tsv = str(self.cfg.splicevardb_tsv) if self.cfg.splicevardb_tsv else ""
+        if not splicevardb_tsv:
+            logger.warning("[SpliceVARDB] splicevardb_tsv not provided, skipping")
+            return pd.read_csv(stage1_csv) if Path(stage1_csv).exists() else pd.DataFrame()
+        if output_csv is None:
+            output_csv = stage1_csv  # overwrite by default
+
+        df = stage2_splicevardb_annotation(
+            stage1_csv=stage1_csv,
+            splicevardb_tsv=splicevardb_tsv,
+            output_csv=output_csv,
             **kwargs,
         )
         self._stage2_df = df
