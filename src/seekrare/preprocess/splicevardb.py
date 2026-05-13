@@ -56,7 +56,8 @@ def stage2_splicevardb_annotation(
         if hg38_val and hg38_val not in ("nan", ""):
             sv_dict[hg38_val] = classification
 
-    # Build CPRA from Stage 1: chr-pos-ref-alt (no chr prefix)
+    # Build CPRA from Stage 1: chr-pos-ref-alt (dash-separated, no chr prefix)
+    # Format matches SpliceVARDB hg38 column: "1-100107682-T-C"
     df["_cpr"] = (
         df["CHROM"].astype(str).str.replace("chr", "", regex=False)
         + "-" + df["POS"].astype(str)
