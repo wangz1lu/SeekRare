@@ -26,8 +26,10 @@ def stage2_splicevardb_annotation(
     Parameters
     ----------
     input_csv : str   Stage 1 output CSV (with CHROM, POS, REF, ALT)
+                  Alias: stage1_csv
     splicevardb_tsv : str   SpliceVARDB TSV (header: variant_id, hg19, hg38, ...)
     output_csv : str   Annotated output CSV
+            Alias: stage2_output_csv
 
     Output column added:
         splicevardb — SpliceVARDB classification (e.g. "Splice-altering", "Low-frequency")
