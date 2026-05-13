@@ -8,6 +8,7 @@ from seekrare.pipeline import (
     stage4_alphafold_prediction,
 )
 from seekrare.preprocess.stage1_family import run_family_preprocess
+from seekrare.preprocess.splicevardb import stage2_splicevardb_annotation
 
 __version__ = "0.2.0"
 __all__ = [
@@ -17,4 +18,5 @@ __all__ = [
     "stage4_genos_analysis",
     "stage4_alphafold_prediction",
     "run_family_preprocess",
+    "stage2_splicevardb_annotation",
 ]
