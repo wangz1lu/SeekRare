@@ -492,6 +492,9 @@ def run_family_preprocess(
         combined = pd.concat(valid_dfs, ignore_index=True)
         combined["rank"] = range(1, len(combined) + 1)
 
+    # 精简 CSV（最终输出前必经步骤）
+    combined = simplify_clinvar_csv(combined)
+
     combined_csv = work_dir / "3_clinvar_annotated.csv"
     combined.to_csv(str(combined_csv), index=False)
 
