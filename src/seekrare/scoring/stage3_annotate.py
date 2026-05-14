@@ -168,7 +168,6 @@ class Stage3Scorer:
         self,
         csv_path: str,
         symptoms: str,
-        patient_sex: Optional[str] = None,
         top_k: int = 50,
         llm_provider: str = "openai",
         llm_model: str = "deepseek-v4-flash",
@@ -177,7 +176,6 @@ class Stage3Scorer:
     ):
         self.csv_path = str(csv_path)
         self.symptoms = symptoms
-        self.patient_sex = patient_sex or "unknown"
         self.top_k = top_k
         self.llm_provider = llm_provider
         self.llm_model = llm_model
@@ -338,14 +336,13 @@ class Stage3Scorer:
         logger.info("Stage 3: LLM Dynamic Scoring & Ranking")
         logger.info(f"  Input: {self.csv_path}")
         logger.info(f"  Symptoms: {self.symptoms}")
-        logger.info(f"  Patient sex: {self.patient_sex}")
 
         # ── 1. 数据摘要（收集动态列 unique 值）────────────────────────────
         summary = summarize_stage1(self.csv_path)
         logger.info(f"  Summary: {summary['n_total']:,} rows")
 
         # ── 2. LLM 打分 prompt ─────────────────────────────────────────────
-        prompt = build_llm_prompt_new(self.symptoms, self.patient_sex, summary)
+        prompt = build_llm_prompt_new(self.symptoms, summary)
         logger.info("  Sending prompt to LLM...")
 
         raw = self._call_llm(prompt)
@@ -395,7 +392,7 @@ class Stage3Scorer:
 # 新版 prompt builder（适配新列体系）
 # ─────────────────────────────────────────────────────────────────────────────
 
-def build_llm_prompt_new(symptoms: str, patient_sex: str, summary: dict) -> str:
+def build_llm_prompt_new(symptoms: str, summary: dict) -> str:
     """
     生成新版 LLM prompt：
       - 静态列说明（内置打分，无需 LLM 输出）
@@ -412,7 +409,6 @@ def build_llm_prompt_new(symptoms: str, patient_sex: str, summary: dict) -> str:
 
     lines = [
         f"患者症状: {symptoms}",
-        f"患者性别: {patient_sex}",
         f"",
         f"变异数据统计（共 {summary['n_total']:,} 行）:",
         f"",
@@ -488,7 +484,7 @@ def build_llm_prompt_new(symptoms: str, patient_sex: str, summary: dict) -> str:
         f"  3. OMIM_scores: {{OMIM:xxxxx: 分数, ...}}",
         f"  4. Orphanet_scores: {{Orphanet:xxxxx: 分数, ...}}",
         f"  5. inheritance_mode_scores: {{denovo/recessive/xlinked: 分数}}",
-        f"     （考虑患者性别：男性更关注X连锁，女性更关注常染色体隐性）",
+        f"     (完全根据疾病/症状特征判断：如先天性发育异常多为de_novo，地中海贫血多为recessive，DMD等多为xlinked)",
         f"  6. MC_scores: {{SO:xxxx: 分数, ...}}",
         f"  7. col_weights: 各列权重（归一化为 sum=1.0，只给动态列权重，静态列权重固定）",
         f"",
