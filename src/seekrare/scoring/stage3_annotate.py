@@ -160,7 +160,7 @@ class Stage3Scorer:
 
     # 动态列（LLM 给出 per-value scores）
     DYNAMIC_COLS = [
-        "gene_name", "HPO", "OMIM", "Orphanet",
+        "gene_name", "HPO", "OMIM", "Orphanet", "diseasename",
         "inheritance_mode", "MC",
     ]
 
@@ -265,6 +265,17 @@ class Stage3Scorer:
         return max(scores) if scores else 0.0
 
     @staticmethod
+    def _score_diseasename(val: str, score_map: dict) -> float:
+        """
+        解析 disease_name 列（用 | 或 ; 分隔多个疾病名），取最高分。
+        """
+        if pd.isna(val) or str(val).strip() == "":
+            return 0.0
+        parts = re.split(r"[|;]", str(val).strip())
+        scores = [score_map.get(p.strip(), 0.0) for p in parts if p.strip()]
+        return max(scores) if scores else 0.0
+
+    @staticmethod
     def _score_inheritance_mode(val: str, score_map: dict) -> float:
         if pd.isna(val) or str(val).strip() == "":
             return 0.0
@@ -294,8 +305,15 @@ class Stage3Scorer:
         s_hpo = self._score_hpo(row.get("HPO", ""), dm.get("HPO", {}))
         s_omim = self._score_omim(row.get("OMIM", ""), dm.get("OMIM", {}))
         s_orphan = self._score_orphanet(row.get("Orphanet", ""), dm.get("Orphanet", {}))
+        s_disease = self._score_diseasename(row.get("diseasename", ""), dm.get("diseasename", {}))
         s_inh = self._score_inheritance_mode(row.get("inheritance_mode", ""), dm.get("inheritance_mode", {}))
         s_mc = self._score_mc(row.get("MC", ""), dm.get("MC", {}))
+
+        # ── gene × disease 一致性奖励 ──────────────────────────
+        # 若 gene_name 和 diseasename 都与症状高度相关（>0.6），给额外奖励
+        consistency_bonus = 0.0
+        if s_gene > 0.6 and s_disease > 0.6:
+            consistency_bonus = (s_gene * s_disease) * 0.1  # 最高 +0.1
 
         return (
             s_ft    * w.get("feature_type", 0.0)
@@ -307,8 +325,10 @@ class Stage3Scorer:
             + s_hpo   * w.get("HPO", 0.0)
             + s_omim  * w.get("OMIM", 0.0)
             + s_orphan * w.get("Orphanet", 0.0)
+            + s_disease * w.get("diseasename", 0.0)
             + s_inh   * w.get("inheritance_mode", 0.0)
             + s_mc    * w.get("MC", 0.0)
+            + consistency_bonus
         )
 
     # ── 主流程 ─────────────────────────────────────────────────────────────
@@ -339,6 +359,7 @@ class Stage3Scorer:
             "HPO":              raw.get("HPO_scores", {}),
             "OMIM":             raw.get("OMIM_scores", {}),
             "Orphanet":         raw.get("Orphanet_scores", {}),
+            "diseasename":      raw.get("diseasename_scores", {}),
             "inheritance_mode": raw.get("inheritance_mode_scores", {}),
             "MC":               raw.get("MC_scores", {}),
         }
@@ -436,6 +457,14 @@ def build_llm_prompt_new(symptoms: str, patient_sex: str, summary: dict) -> str:
 
     lines.extend([
         f"",
+        f"【diseasename 唯一值】（部分展示）:",
+    ])
+    disease_names = list(summary.get("diseasename_counts", {}).keys())[:50]
+    for dn in disease_names[:30]:
+        lines.append(f"  {dn}")
+
+    lines.extend([
+        f"",
         f"【inheritance_mode 分布】:",
     ])
     inh_counts = summary.get("inheritance_mode_counts", {})
@@ -469,11 +498,12 @@ def build_llm_prompt_new(symptoms: str, patient_sex: str, summary: dict) -> str:
   "HPO_scores": {{"HP:0004321": 0.95, "HP:0001513": 0.7, ...}},
   "OMIM_scores": {{"OMIM:616126": 0.9, ...}},
   "Orphanet_scores": {{"Orphanet:319563": 0.8, ...}},
+  "diseasename_scores": {{"Thalassemia": 0.95, "Sickle cell disease": 0.9, ...}},
   "inheritance_mode_scores": {{"de_novo": 0.9, "recessive": 0.7, "xlinked": 0.3}},
   "MC_scores": {{"SO:0001583": 0.7, "SO:0001627": 0.9, ...}},
   "col_weights": {{
     "gene_name": 0.15, "HPO": 0.15, "OMIM": 0.15,
-    "Orphanet": 0.10, "inheritance_mode": 0.10, "MC": 0.10,
+    "Orphanet": 0.08, "diseasename": 0.12, "inheritance_mode": 0.10, "MC": 0.05,
     "feature_type": 0.10, "significance": 0.10, "clinvarstar": 0.025,
     "eqtl_tissue": 0.025, "splicevardb": 0.025
   }}

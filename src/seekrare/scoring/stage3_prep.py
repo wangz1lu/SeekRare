@@ -109,6 +109,7 @@ def summarize_stage1(csv_path: str, sample_limit: int = 5_000_000) -> dict:
 
     # ── gene_name ─────────────────────────────────────────────────────────
     result["gene_name_counts"] = df["gene_name"].value_counts().to_dict()
+    result["diseasename_counts"] = df.get("diseasename", pd.Series(dtype=str)).value_counts().to_dict()
 
     # ── inheritance_mode ──────────────────────────────────────────────────
     result["inheritance_mode_counts"] = df["inheritance_mode"].value_counts().to_dict()
