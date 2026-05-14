@@ -52,6 +52,9 @@ class SeekRareConfig:
     # Stage 2
     gtex_tissue_dir: Optional[Union[str, Path]] = None
     splicevardb_tsv: Optional[Union[str, Path]] = None
+    genemap2_path: Optional[Union[str, Path]] = None
+    mimtitles_path: Optional[Union[str, Path]] = None
+    phenotype_hpoa_path: Optional[Union[str, Path]] = None
 
     # Stage 3
     llm_provider: str = "openai"
@@ -252,6 +255,42 @@ class SeekRarePipeline:
         df = stage2_splicevardb_annotation(
             input_csv=stage1_csv,
             splicevardb_tsv=splicevardb_tsv,
+            output_csv=output_csv,
+        )
+        self._stage2_df = df
+        return df
+
+    def stage2_omim_hpo_annotation(
+        self,
+        input_csv: Optional[str] = None,
+        genemap2_path: Optional[str] = None,
+        mimtitles_path: Optional[str] = None,
+        phenotype_hpoa_path: Optional[str] = None,
+        output_csv: Optional[str] = None,
+    ) -> pd.DataFrame:
+        """
+        Stage 2 后处理: OMIM + HPO 二次注释。
+
+        - OMIM: 用 genemap2.txt 补充 gene_name → MIM 号（已有值不覆盖）
+        - HPO: 用 phenotype.hpoa 根据 OMIM 追加 HPO 标签（不覆盖已有）
+        - disease_name: 用 phenotype.hpoa 补充（已有值不覆盖）
+        """
+        if input_csv is None:
+            input_csv = str(self.cfg.work_dir / "5_splicevardb_annotated.csv")
+        if genemap2_path is None:
+            genemap2_path = str(self.cfg.genemap2_path) if self.cfg.genemap2_path else None
+        if mimtitles_path is None:
+            mimtitles_path = str(self.cfg.mimtitles_path) if self.cfg.mimtitles_path else None
+        if phenotype_hpoa_path is None:
+            phenotype_hpoa_path = str(self.cfg.phenotype_hpoa_path) if self.cfg.phenotype_hpoa_path else None
+        if output_csv is None:
+            output_csv = input_csv
+
+        df = stage2_omim_hpo_annotation(
+            input_csv=input_csv,
+            genemap2_path=genemap2_path,
+            mimtitles_path=mimtitles_path,
+            phenotype_hpoa_path=phenotype_hpoa_path,
             output_csv=output_csv,
         )
         self._stage2_df = df
