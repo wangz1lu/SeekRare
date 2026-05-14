@@ -9,6 +9,7 @@ from seekrare.pipeline import (
 )
 from seekrare.preprocess.stage1_family import run_family_preprocess
 from seekrare.preprocess.splicevardb import stage2_splicevardb_annotation
+from seekrare.preprocess.omim_hpo_annotation import stage2_omim_hpo_annotation
 
 __version__ = "0.2.0"
 __all__ = [
@@ -19,4 +20,5 @@ __all__ = [
     "stage4_alphafold_prediction",
     "run_family_preprocess",
     "stage2_splicevardb_annotation",
+    "stage2_omim_hpo_annotation",
 ]
