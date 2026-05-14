@@ -53,6 +53,7 @@ FEATURE_TYPE_MAP = {
 
 
 SIGNIFICANCE_WORST = {
+    # 分数越低越良性，分数越高越致病；"/" 分隔取最低分（最良性 = 最坏情况）
     "Benign": -1.0,
     "Likely_benign": -0.5,
     "Conflicting_classifications_of_pathogenicity": 0.4,
@@ -65,18 +66,30 @@ SIGNIFICANCE_WORST = {
 
 def _score_significance(val: str) -> float:
     """
-    处理 "/" 分隔的多值 significance，取最坏（分数最高 = 最致病）。
-    无 ClinVar 注释（空值）→ -0.5 惩罚
-    Benign → -1.0（严重惩罚）
-    Likely_benign → -0.5（轻度惩罚）
+    处理 "/" 分隔的多值 significance。
+    逻辑：按 significance 方向分两段，分别取极值：
+      - 若包含 Benign → 取最低分（最良性）
+      - 若包含 Pathogenic → 取最高分（最致病）
+      - 否则取最高分（最坏情况）
+    无 ClinVar 注释 → -0.5 惩罚。
     """
     if pd.isna(val) or str(val).strip() == "":
-        return -0.5  # 无 ClinVar 注释 → 惩罚
+        return -0.5
     parts = str(val).strip().split("/")
     scores = []
     for p in parts:
         p = p.strip()
         scores.append(SIGNIFICANCE_WORST.get(p, 0.5))
+
+    # 若有任何 Benign 类 → 取最低（最良性 = 最坏结果）
+    benign_keywords = ["benign"]
+    has_benign = any(
+        any(bk in str(p).lower() for bk in benign_keywords) for p in parts
+    )
+    if has_benign:
+        return min(scores)   # Benign/Likely_benign → -1.0
+
+    # 否则取最高（Pathogenic/Likely_Pathogenic → 1.0）
     return max(scores) if scores else -0.5
 
 
