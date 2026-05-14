@@ -53,8 +53,8 @@ FEATURE_TYPE_MAP = {
 
 
 SIGNIFICANCE_WORST = {
-    "Benign": 0.0,
-    "Likely_benign": 0.1,
+    "Benign": -1.0,
+    "Likely_benign": -0.5,
     "Conflicting_classifications_of_pathogenicity": 0.4,
     "Uncertain_significance": 0.5,
     "Likely_Pathogenic": 0.85,
@@ -64,15 +64,20 @@ SIGNIFICANCE_WORST = {
 
 
 def _score_significance(val: str) -> float:
-    """处理 "/" 分隔的多值 significance，取最坏（最高分 = 最致病）"""
+    """
+    处理 "/" 分隔的多值 significance，取最坏（分数最高 = 最致病）。
+    无 ClinVar 注释（空值）→ -0.5 惩罚
+    Benign → -1.0（严重惩罚）
+    Likely_benign → -0.5（轻度惩罚）
+    """
     if pd.isna(val) or str(val).strip() == "":
-        return 0.0
+        return -0.5  # 无 ClinVar 注释 → 惩罚
     parts = str(val).strip().split("/")
     scores = []
     for p in parts:
         p = p.strip()
         scores.append(SIGNIFICANCE_WORST.get(p, 0.5))
-    return max(scores) if scores else 0.0
+    return max(scores) if scores else -0.5
 
 
 CLINVARSTAR_MAP = {
