@@ -140,7 +140,6 @@ class Stage3Scorer:
         Stage 1/2 输出 CSV
     symptoms : str
         患者症状描述（自由文本）
-    patient_sex : str, optional
         患者性别 "male" / "female"（影响 inheritance_mode 打分）
     top_k : int
         返回 top-K 候选，默认 50
@@ -477,7 +476,7 @@ def build_llm_prompt_new(symptoms: str, summary: dict) -> str:
 
     lines.extend([
         f"",
-        f"请根据患者症状（考虑患者性别: {patient_sex}），为以上动态列的每个取值给出 0~1 的相关性分数（1=最相关，0=不相关）:",
+        f"请根据患者症状，为以上动态列的每个取值给出 0~1 的相关性分数（1=最相关，0=不相关）:",
         f"",
         f"  1. gene_name_scores: {{基因名: 分数, ...}}",
         f"  2. HPO_scores: {{HP:xxxx: 分数, ...}}",
@@ -516,7 +515,6 @@ def build_llm_prompt_new(symptoms: str, summary: dict) -> str:
 def stage3_score_and_rank(
     csv_path: str,
     symptoms: str,
-    patient_sex: Optional[str] = None,
     output_csv: Optional[str] = None,
     top_k: int = 50,
     llm_provider: str = "openai",
@@ -532,7 +530,6 @@ def stage3_score_and_rank(
     scorer = Stage3Scorer(
         csv_path=csv_path,
         symptoms=symptoms,
-        patient_sex=patient_sex,
         top_k=top_k,
         llm_provider=llm_provider,
         llm_model=llm_model,
