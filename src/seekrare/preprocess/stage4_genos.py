@@ -68,7 +68,9 @@ from loguru import logger
 def _genos_scripts_dir() -> Path:
     """返回 scripts/genos/ 目录（包内自带的 Genos 工具脚本）。"""
     import seekrare
-    pkg_root = Path(seekrare.__file__).parent.parent
+    # seekrare/__file__ = src/seekrare/__init__.py
+    # parent = src/seekrare, parent.parent = src, parent.parent.parent = 包根目录
+    pkg_root = Path(seekrare.__file__).parent.parent.parent
     return pkg_root / "scripts" / "genos"
 
 
